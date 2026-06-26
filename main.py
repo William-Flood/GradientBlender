@@ -120,7 +120,7 @@ def subdivided_border_main():
     parser.add_argument(
         "-border_decimate_r_2_threshold",
         type=float,
-        default=0.9,
+        default=0.99,
         help=(
             "Used to decide how much to segment the border between region boundaries"
         )

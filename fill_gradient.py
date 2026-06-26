@@ -7,6 +7,7 @@ from borders.detector import detect_drawn_border
 from borders.divide import divide_borders
 from borders.decimate import decimate
 from regions.identify import identify_regions, test_region
+from image.draw_borders import draw_borders
 
 
 def get_interpolations(
@@ -271,7 +272,8 @@ def subdivided_border_tangent_interpolation_fill(
         region_defuzz_threshold=20,
         border_defuzz_threshold=5,
         region_proportion_threshold=0.01,
-        border_decimate_r_2_threshold=.9):
+        border_decimate_r_2_threshold=.95,
+        border_decimate_point_count_threshold=5):
     guide_image = Image.open(guide_image_file)
     guide_image_array = np.array(guide_image)
     guide_image_shape = guide_image_array.shape[:2]
@@ -291,16 +293,23 @@ def subdivided_border_tangent_interpolation_fill(
         region_border = dict()
         regions_borders[region_id] = region_border
         for bordering_region_id, border_points in border_map.items():
-            split_borders = divide_borders(
-                np.stack(border_points, axis=1)
-            )
-            total_borders.extend(split_borders)
-            region_border[bordering_region_id] = split_borders
+            if bordering_region_id not in regions_borders or region_id not in regions_borders[bordering_region_id]:
+                split_borders = divide_borders(
+                    np.stack(border_points, axis=1)
+                )
+                total_borders.extend(split_borders)
+                region_border[bordering_region_id] = split_borders
     start_time = time.time()
+    decimate_index = 0
     for border in total_borders:
-        decimate(border, guide_image_shape, border_decimate_r_2_threshold)
+        decimate(border, guide_image_shape, border_decimate_r_2_threshold, border_decimate_point_count_threshold)
+        decimate_index += 1
+    border_index_inspect = np.zeros(guide_image_array.shape[:2])
+    for index, border in enumerate(total_borders):
+        border_index_inspect[*border.full_points] = index
     elapsed = time.time() - start_time
-    print(elapsed)
+    # print(elapsed)
+    draw_borders(total_borders, guide_image_shape)
     # color_map, borders = get_region_and_borders(guide_image_array, region_proportion_threshold)
     # for value, points in color_map.items():
     #     border_points = np.concat([value_border for value_border in borders[value].values()]).T

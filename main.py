@@ -2,6 +2,7 @@ from fill_gradient import subdivided_border_tangent_interpolation_fill, closest_
 import argparse
 import os
 import time
+import math
 
 
 def build_default_output_filename(input_filename):
@@ -118,9 +119,9 @@ def subdivided_border_main():
     )
 
     parser.add_argument(
-        "-border_decimate_r_2_threshold",
+        "-decimate_deviation_cutoff",
         type=float,
-        default=0.99,
+        default=3,
         help=(
             "Used to decide how much to segment the border between region boundaries"
         )
@@ -142,7 +143,7 @@ def subdivided_border_main():
         region_defuzz_threshold=args.region_defuzz_threshold,
         border_defuzz_threshold=args.border_defuzz_threshold,
         region_proportion_threshold=args.region_proportion_threshold,
-        border_decimate_r_2_threshold=args.border_decimate_r_2_threshold
+        decimate_deviation_cutoff=args.decimate_deviation_cutoff
     )
     print(f"Elapsed: {time.time() - start_time}")
 

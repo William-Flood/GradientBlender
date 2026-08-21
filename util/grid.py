@@ -8,13 +8,13 @@ def transpose_and_shape_new_grid(transposed_expanded_new_grid):
     :return: A 2xnx4x2 array
     """
     splits_axis_pulled_out = np.reshape(transposed_expanded_new_grid, [-1, 2, 4, 2])
-    axes_aligned = np.transpose(splits_axis_pulled_out,[1, 0, 2, 3])
+    axes_aligned = np.transpose(splits_axis_pulled_out, [1, 0, 2, 3])
     return axes_aligned
 
 
 def subdivide_grid(grid_rects):
     """
-    For a set of grid squares, return a new grid consisting of the existing grid split in half horizonally and vertically
+    For a set of grid squares, return a new grid consisting of the existing grid split in half horizontally and vertically
     :param grid_rects: An nx2x2 array of ints, representing a set of
         [[grid_top_y, grid_left_x], [grid_bottom_y, grid_right_x]] coordinates; grid_bottom_y, grid_right_x are exclusive
 
@@ -36,8 +36,8 @@ def subdivide_grid(grid_rects):
         ]
     )
     subdivided_grid_expanded_transposed = \
-        np.einsum("gao,aon->gan", new_grid_transposed, grid_splitter_matrix)\
-        .astype(np.int32)
+        np.einsum("gao,aon->gan", new_grid_transposed, grid_splitter_matrix) \
+            .astype(np.int32)
     subdivided_grid = transpose_and_shape_new_grid(subdivided_grid_expanded_transposed)
     return subdivided_grid
 
@@ -69,11 +69,11 @@ def shape_to_next_round(grid_divisions, points_per_grid_division, grid_division_
 
 
 def shape_and_truncate_to_next_round(
-    grid_divisions,
-    points_per_grid_division,
-    grid_division_padding,
-    max_points_in_grid,
-    points_in_grid_divisions_count
+        grid_divisions,
+        points_per_grid_division,
+        grid_division_padding,
+        max_points_in_grid,
+        points_in_grid_divisions_count
 ):
     points_per_grid, padding_mask, grid = shape_to_next_round(
         grid_divisions,
@@ -125,14 +125,28 @@ class GridCell:
         self.bottom = coords[0, 1]
         self.right = coords[1, 1]
 
+    @property
+    def border_point_mask(self):
+        return (np.equal(self.points[0], self.top) |
+                np.equal(self.points[0], self.bottom - 1) |
+                np.equal(self.points[1], self.left) |
+                np.equal(self.points[1], self.right - 1)
+        )
+
+    @property
+    def border_points(self):
+        return self.points[:, self.border_point_mask]
+
 
 class Grid:
     """
     Used to split a set of 2-dimensional coordinates into rectangular regions
     """
+
     def __init__(self, grid_shape, points):
         image_height, image_width = grid_shape
-        self.grid = np.array([[[0, image_height]],[[0, image_width]]], dtype=np.int32)
+        self.grid_shape = grid_shape
+        self.grid = np.array([[[0, image_height]], [[0, image_width]]], dtype=np.int32)
         self.points_per_grid = np.reshape(points, [2, 1, -1])
         self.padding_mask = np.ones([1, points.shape[1]], dtype=np.bool)
 

@@ -1,13 +1,16 @@
+import math
 import time
 
 from color_mapper import color_mapper
-from PIL import Image
-import numpy as np
 from borders.detector import detect_drawn_border
 from borders.divide import divide_borders
 from borders.decimate import decimate
-from regions.identify import identify_regions, test_region
+from regions.identify_image_regions import identify_image_regions
 from image.draw_borders import draw_borders
+from regions.region import Region
+from typing import Dict
+from util.inspection_utils import *
+from image.validate import validate
 
 
 def get_interpolations(
@@ -235,7 +238,6 @@ def get_region_and_borders(guide_image_array, region_proportion_threshold):
     return color_map, borders
 
 
-
 def closest_and_opposite_interpolation_fill(guide_image_file, result_image_file, batch_stripe_distance=5, region_proportion_threshold=0.01):
     """
     Uses a guide image to blend regions of varying shades of grey together into smooth gradient
@@ -254,6 +256,7 @@ def closest_and_opposite_interpolation_fill(guide_image_file, result_image_file,
     for value, points in color_map.items():
         for row_offset in range(batch_stripe_distance):
             for column_offset in range(batch_stripe_distance):
+                print(f"Filling {row_offset}-{column_offset} pixel set")
                 fill_sample_points(
                     value,
                     np.array(points),
@@ -272,7 +275,7 @@ def subdivided_border_tangent_interpolation_fill(
         region_defuzz_threshold=20,
         border_defuzz_threshold=5,
         region_proportion_threshold=0.01,
-        border_decimate_r_2_threshold=.95,
+        decimate_deviation_cutoff=3,
         border_decimate_point_count_threshold=5):
     guide_image = Image.open(guide_image_file)
     guide_image_array = np.array(guide_image)
@@ -282,35 +285,49 @@ def subdivided_border_tangent_interpolation_fill(
     for value, points in color_map.items():
         points_array = np.array(points)
         values_array[points_array[...,0], points_array[...,1]] = value
-    regions_points, region_values = identify_regions(values_array, region_defuzz_threshold)
-    regions_array = np.full(guide_image_shape, -1.0)
-    for region_id, points in enumerate(regions_points):
-        regions_array[*points] = region_id - 1
-    regions_borders_raw = detect_drawn_border(regions_array)
-    regions_borders = dict()
+    validate(values_array)
+    regions_points, region_values = identify_image_regions(values_array, region_defuzz_threshold)
+    regions_array = np.full(guide_image_shape, -1.0, dtype=np.int32)
+    region_dict = dict()
+    for region_index, points in enumerate(regions_points):
+        region_value = values_array[*points[:, 0]]
+        # if region_value >= 0:
+        regions_array[*points] = region_index
+        region_dict[region_index] = Region(region_value, region_index, points)
+    # regions_csv = matrix_to_csv(regions_array)
+    regions_borders_raw = detect_drawn_border(regions_array, values_array)
+    regions_borders: Dict[int, Dict[int, Region]] = dict()
     total_borders = []
     for region_id, border_map in regions_borders_raw.items():
+        print(f"Creating borders for region {region_id}")
         region_border = dict()
         regions_borders[region_id] = region_border
         for bordering_region_id, border_points in border_map.items():
             if bordering_region_id not in regions_borders or region_id not in regions_borders[bordering_region_id]:
+                if bordering_region_id == -1:
+                    bordering_region = region_dict[region_id]
+                else:
+                    bordering_region = region_dict[bordering_region_id]
                 split_borders = divide_borders(
-                    np.stack(border_points, axis=1)
+                    border_points,
+                    region_dict[region_id],
+                    bordering_region,
+                    regions_array
                 )
                 total_borders.extend(split_borders)
                 region_border[bordering_region_id] = split_borders
+                for border in split_borders:
+                    region_dict[region_id].add_border(border)
+                    region_dict[bordering_region_id].add_border(border)
     start_time = time.time()
     decimate_index = 0
+    print("Decimating borders")
     for border in total_borders:
-        decimate(border, guide_image_shape, border_decimate_r_2_threshold, border_decimate_point_count_threshold)
+        decimate(border, decimate_deviation_cutoff)
         decimate_index += 1
-    border_index_inspect = np.zeros(guide_image_array.shape[:2])
-    for index, border in enumerate(total_borders):
-        border_index_inspect[*border.full_points] = index
     elapsed = time.time() - start_time
     # print(elapsed)
     draw_borders(total_borders, guide_image_shape)
-    # color_map, borders = get_region_and_borders(guide_image_array, region_proportion_threshold)
-    # for value, points in color_map.items():
-    #     border_points = np.concat([value_border for value_border in borders[value].values()]).T
-    #     downsample_border(border_points, points, guide_image_array.shape, 5)
+    for region in region_dict.values():
+        if not region.is_void:
+            region.create_loops(border_defuzz_threshold)

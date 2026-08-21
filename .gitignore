@@ -4,3 +4,4 @@ __pycache__/
 .idea/
 *.jpg
 *.clip
+validation_failure_list.txt

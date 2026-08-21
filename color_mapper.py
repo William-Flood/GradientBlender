@@ -25,14 +25,14 @@ def color_mapper(image_array, region_proportion_threshold):
     )
     values_alphas_and_indices = np.concat((values_and_alpha_array, image_index_rect), axis=2)
     values_alphas_and_indices_flat = np.reshape(values_alphas_and_indices, [image_height * image_width, 4])
-    values_alphas_and_indices_flat_filtered = values_alphas_and_indices_flat[values_alphas_and_indices_flat[...,1] > 0]
+    values_alphas_and_indices_flat_filtered = values_alphas_and_indices_flat[values_alphas_and_indices_flat[...,1] > 10]
     values_and_indices_flat = values_alphas_and_indices_flat_filtered[...,[0,2,3]]
     for pixel in values_and_indices_flat:
         if pixel[1] == 0:
             continue
         value = pixel[0]
         points_by_value_with_default[value].append(pixel[1:].astype(np.int32))
-    total_filled_pixels = np.sum(image_array[...,3] > 0)
+    total_filled_pixels = np.sum(image_array[...,3] > 10)
     count_threshhold = total_filled_pixels * region_proportion_threshold
     points_by_value = dict(points_by_value_with_default)
     values = list(points_by_value.keys())

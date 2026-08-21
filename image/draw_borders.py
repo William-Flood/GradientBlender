@@ -22,7 +22,7 @@ def draw_border(border: Border, border_drawer):
     for line in lines:
         line_flattened = list(line.flatten())
         border_drawer.line(line_flattened, fill=0, width=1)
-    if border.loop:
+    if border.is_loop:
         border_drawer.line(
             (border_points_xy[-1, 0], border_points_xy[-1, 1], border_points_xy[0, 0], border_points_xy[0, 1]),
             fill=0, width=1

@@ -127,6 +127,14 @@ def subdivided_border_main():
         )
     )
 
+    parser.add_argument(
+        "-system_config_file",
+        type=str,
+        default="config.json",
+        help="Provides constants used for performance tuning and expected to be system-specific, such as batch sizes.  "
+             + "If the config file does not exist, defaults have been hard-coded inside util.config.py"
+    )
+
     args = parser.parse_args()
 
     # Generate default output filename if omitted
@@ -143,7 +151,8 @@ def subdivided_border_main():
         region_defuzz_threshold=args.region_defuzz_threshold,
         border_defuzz_threshold=args.border_defuzz_threshold,
         region_proportion_threshold=args.region_proportion_threshold,
-        decimate_deviation_cutoff=args.decimate_deviation_cutoff
+        decimate_deviation_cutoff=args.decimate_deviation_cutoff,
+        config_file_name=args.system_config_file
     )
     print(f"Elapsed: {time.time() - start_time}")
 

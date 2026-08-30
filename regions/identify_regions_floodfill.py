@@ -3,6 +3,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse import coo_array
 from util.substitute_values import substitute_values
 from util.point_neighborhood import offset_matrix
+from skimage.segmentation import flood
 
 
 def merge_regions(merges_array, regions_array):
@@ -121,13 +122,21 @@ def make_starting_points(regions_array):
     return open_points[:, sample_indices]
 
 
-def identify_regions(values_array):
-    regions_array = np.full(values_array.shape, -1)
-    while np.equal(regions_array, -1).any():
-        starting_points = make_starting_points(regions_array)
-        search_from_start(starting_points, values_array, regions_array)
-    return [np.array(np.nonzero(
-        np.equal(
-            regions_array, region_label
+def identify_regions(values_array, search_mask=None, include_diagonals=True):
+    if search_mask is None:
+        filled = np.zeros(values_array.shape, dtype=np.bool)
+    else:
+        filled = np.logical_not(search_mask)
+    if include_diagonals:
+        connectivity = None
+    else:
+        connectivity = 1
+    regions = []
+    while np.logical_not(filled).any():
+        next_point = np.unravel_index(
+            np.argmin(filled.flatten()), values_array.shape
         )
-    )) for region_label in np.unique(regions_array)]
+        region_mask = flood(values_array, next_point, connectivity=connectivity)
+        regions.append(np.array(np.nonzero(region_mask)))
+        filled = filled + region_mask
+    return regions

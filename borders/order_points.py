@@ -1,10 +1,8 @@
 import numpy as np
 from numpy.typing import NDArray
 from util.grid import Grid, GridCell
-import math
 from scipy.sparse import coo_array
-from typing import List
-from borders.get_pixel_connections import get_pixel_connections
+from typing import List, Generator
 from scipy.sparse.csgraph import shortest_path, connected_components
 from util.inspection_utils import *
 from util.point_neighborhood import (
@@ -14,14 +12,32 @@ from util.point_neighborhood import (
     get_neighbor_boolean_mask,
     get_neighbor_values_over_array
 )
+from util.inspection_utils_gui import visualize_point_list
 
 TARGET_MAX_SIZE = 500
-TARGET_MIN_SIZE = 20
 
+def get_point_list_graph(points_in_list, connections):
+    """
+    Constructs a sparse array representing the graph connections of a list of points, generally selected out of some
+    feature of an image for batch processing.
+    Args:
+        points_in_list: A sorted list of indices corresponding to points in a matrix.
+        connections: The full list of connections between points in the matrix.
 
-def get_window_point_graph(points_in_window, connections):
+    Returns:
+
+    """
+    if points_in_list.shape[0] == 0:
+        return coo_array(
+            ([], np.zeros([2, 0])),
+            shape=[0] * 2)
+    elif points_in_list.shape[0] == 1:
+        return coo_array(
+            ([], np.zeros([2, 0])),
+            shape=[1] * 2)
+    assert np.all(np.greater(points_in_list[1:], points_in_list[:-1]))
     are_points_within_window = coo_array(
-        (np.ones(points_in_window.shape[0], dtype=np.bool), [points_in_window]),
+        (np.ones(points_in_list.shape[0], dtype=np.bool), [points_in_list]),
         shape=[np.max(connections) + 1]
     )
     are_connections_within_window = np.all(
@@ -29,17 +45,25 @@ def get_window_point_graph(points_in_window, connections):
         axis=0
     )
     connection_within_window = connections[:, are_connections_within_window]
-    connections_window_indices: NDArray = np.searchsorted(points_in_window, connection_within_window)
+    connections_window_indices: NDArray = np.searchsorted(points_in_list, connection_within_window)
     return coo_array(
         (np.ones([connections_window_indices.shape[1]]), connections_window_indices),
-        shape=[len(points_in_window)] * 2
+        shape=[len(points_in_list)] * 2
     )
 
-# def get_points_around_set(initial_set):
-#     return initial_set[:, :, np.newaxis] + offset_matrix
 
+def find_border_start_point(border_points, region_points, connections):
+    """
+    Returns the starting point for traversing a border
+    Args:
+        border_points: The list of points in the border
+        region_points: A map of which points in the full image correspond to which region
+        connections: The full list of connections between points in the matrix.
 
-def find_border_end_points(border_points, region_points, connections):
+    Returns: If the border is a closed loop, returns None.  Otherwise, the function returns
+    one of the border end points
+
+    """
     neighbor_regions = get_neighbor_values_over_array(
         region_points,
         border_points
@@ -64,169 +88,41 @@ def find_border_end_points(border_points, region_points, connections):
         border_points[:, multi_region_border_indices]
     )
     for multi_region_index, neighbor_indices in zip(
-            multi_region_border_neighbor_indices,
-            multi_region_border_indices
+            multi_region_border_indices,
+            multi_region_border_neighbor_indices
     ):
         neighbor_indices_normalized = np.sort(neighbor_indices[(np.not_equal(neighbor_indices, -1))])
-        get_window_point_graph(neighbor_indices_normalized, connections)
+        get_point_list_graph(neighbor_indices_normalized, connections)
         num_labels, _ = connected_components(
-            get_window_point_graph(neighbor_indices_normalized, connections).toarray(),
+            get_point_list_graph(neighbor_indices_normalized, connections).toarray(),
             directed=False
         )
         if num_labels == 1:
             end_point_indices_list.append(multi_region_index)
     if len(end_point_indices_list) > 0:
-        end_point_indices = np.concat(end_point_indices_list)
+        end_point_indices = np.array(end_point_indices_list)
     else:
         end_point_indices = np.zeros([0])
-    if len(end_point_indices) > 1:
-        border_graph = get_window_point_graph(np.arange(border_points.shape[1]), connections)
+    if end_point_indices.shape[0] > 1:
+        border_graph = get_point_list_graph(np.arange(border_points.shape[1]), connections)
         point_distances = shortest_path(border_graph, directed=False, indices=end_point_indices)
         max_distances = np.max(point_distances, axis=1)
         return border_points[:, end_point_indices[np.argmax(max_distances)]]
-    elif len(end_point_indices) == 1:
+    elif end_point_indices.shape[0]:
         return border_points[:, end_point_indices[0]]
     else:
         return None
 
 
-def find_branch_points(cell, connections, point_index_map):
-    unsorted_cell_point_indexes = point_index_map[*cell]
-    indices_ordering = np.argsort(unsorted_cell_point_indexes)
-    cell_point_indexes = unsorted_cell_point_indexes[indices_ordering]
-    sorted_points = cell[:, indices_ordering]
-    cell_graph = get_window_point_graph(cell_point_indexes, connections).toarray()
-    point_connections = np.sum(cell_graph, axis=1)
-    candidate_branch_coords = sorted_points[:, np.greater(point_connections, 2)]
-    return candidate_branch_coords
-
-
-def peel_corners(
-    points,
-    connections
-):
-    point_neighbor_bools = get_neighbor_boolean_mask(
-        points,
-        points
-    )
-    corner_candidates = np.flatnonzero(
-        np.equal(np.sum(point_neighbor_bools, axis=1), 2)
-    )
-    corner_candidate_neighbor_bools = point_neighbor_bools[corner_candidates]
-    corner_pattern = np.identity(8, dtype=np.bool) | np.roll(np.identity(8, dtype=np.bool), 1, axis=1)
-    point_is_corner = np.any(
-        np.all(
-            np.equal(
-                corner_candidate_neighbor_bools[:, np.newaxis, :],
-                corner_pattern[np.newaxis, :, :]
-            ),
-            axis=2
-        ),
-        axis=1
-    )
-    corner_indices = corner_candidates[point_is_corner]
-    corner_connection_bools = point_neighbor_bools[corner_indices]
-    corner_connections = np.reshape(
-        get_neighbor_values(
-            points,
-            np.arange(points.shape[1]),
-            points[:, corner_indices]
-        ).flatten()[corner_connection_bools.flatten()],
-        [-1, 2]
-    )
-    corner_connections_mask = coo_array(
-        ([True] * corner_connections.shape[0], corner_connections.T),
-        shape=np.max(connections, axis=1) + 1
-    )
-    return connections[
-        :,
-        np.logical_not(corner_connections_mask[*connections].toarray())
-    ]
-
-
-def filter_branches(
-        cell_branch_points_unfiltered,
-        unfiltered_border_connections,
-        original_point_index_map,
-        full_point_list):
-    false_branch_patterns = np.array([
-        [1, 1, 1, 1, 1, 0, 0, 0],
-        [0, 1, 1, 1, 1, 0, 0, 1],
-        [1, 1, 1, 1, 0, 1, 0, 0],
-        [1, 0, 0, 1, 1, 0, 0, 0],
-        [1, 0, 0, 0, 1, 1, 0, 0],
-        [1, 0, 1, 0, 0, 0, 1, 0],
-    ], dtype=np.bool)
-    false_connections = np.array([
-        [0, 1, 1, 1, 0, 0, 0, 0],
-        [0, 1, 1, 1, 0, 0, 0, 0],
-        [0, 1, 1, 1, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 1, 0, 0],
-        [1, 0, 0, 0, 0, 0, 0, 0],
-    ], dtype=np.bool)
-    false_branch_patterns_rolled = np.concat(
-        [
-            false_branch_patterns,
-            np.roll(false_branch_patterns, shift=2, axis=1),
-            np.roll(false_branch_patterns, shift=4, axis=1),
-            np.roll(false_branch_patterns, shift=6, axis=1)
-        ], axis=0
-    )
-    false_connections_rolled = np.concat(
-        [
-            false_connections,
-            np.roll(false_connections, shift=2, axis=1),
-            np.roll(false_connections, shift=4, axis=1),
-            np.roll(false_connections, shift=6, axis=1)
-        ], axis=0
-    )
-    branch_neighbor_indices = get_neighbor_values(
-        full_point_list,
-        np.arange(full_point_list.shape[1]),
-        cell_branch_points_unfiltered
-    )
-    false_branch_check = np.all(
-        np.equal(
-            np.not_equal(branch_neighbor_indices, -1)[:, np.newaxis, :],
-            false_branch_patterns_rolled[np.newaxis, :, :]
-        ),
-        axis=2
-    )
-    false_branch_matches = np.nonzero(false_branch_check)
-    false_connections = false_connections_rolled[false_branch_matches[1]]
-    false_branch_and_neighbors = np.reshape(
-        np.stack(
-            np.broadcast_arrays(
-                np.reshape(original_point_index_map[
-                               *cell_branch_points_unfiltered[:, false_branch_matches[0]]
-                           ], [-1, 1]),
-                branch_neighbor_indices[false_branch_matches[0]]
-            ),
-            axis=2
-        ),
-        [-1, 2]
-    )
-    false_connections = false_branch_and_neighbors[false_connections.flatten()]
-    false_connections_sanitized = np.unique(
-        np.concat(
-            (false_connections, np.roll(false_connections, shift=1, axis=1)), axis=0
-        ), axis=0
-    )
-    false_connection_map = coo_array(
-        ([True] * false_connections_sanitized.shape[0], false_connections_sanitized.T),
-        shape=[np.max(unfiltered_border_connections) + 1] * 2
-    )
-    true_branches = cell_branch_points_unfiltered[:, np.logical_not(np.any(false_branch_check, axis=1))]
-    connections_filtered_1 = unfiltered_border_connections[
-        :,
-        np.logical_not(false_connection_map[*unfiltered_border_connections].toarray())
-    ]
-    # true_connections = peel_corners(full_point_list, connections_filtered_1)
-    return true_branches, connections_filtered_1
-
-
 def find_cell_crossings(border_cells: List[NDArray]):
+    """
+    Given a list of points representing chunks of a region border, identifies which points transition between chunks
+    Args:
+        border_cells:
+
+    Returns:
+
+    """
     border_points = np.concat(border_cells, axis=1)
     point_cell_ids = np.concat(
         [[cell_index + 1] * cell.shape[1] for cell_index, cell in enumerate(border_cells)]
@@ -246,7 +142,7 @@ def find_cell_crossings(border_cells: List[NDArray]):
     return border_points[:, is_point_crossing]
 
 
-def get_connected_neighbors(branch_points, region_points, full_point_list):
+def get_connected_neighbors(branch_points, region_points):
     branch_neighbors = get_neighbors(branch_points)
     branch_neighbor_regions = get_neighbor_values(
         np.reshape(np.indices(region_points.shape), [2, -1]),
@@ -265,7 +161,7 @@ def get_connected_neighbors(branch_points, region_points, full_point_list):
 
 
 def find_branch_components(branch_points, region_points, border_points):
-    connected_neighbors = get_connected_neighbors(branch_points, region_points, border_points)
+    connected_neighbors = get_connected_neighbors(branch_points, region_points)
     connected_neighbors_indices = np.indices(connected_neighbors.shape)
     combined_connected_neighbors_indices = np.reshape(
         connected_neighbors_indices[[1, 2]] + connected_neighbors_indices[[0]] * 8,
@@ -289,7 +185,70 @@ def find_branch_components(branch_points, region_points, border_points):
     return np.reshape(masked_connected_labels, [-1, 8])
 
 
-def find_next_start_list(branch_point_components, branch_point, branch_predecessor, searched):
+def find_exterior_connecting_branch_and_previous(branch_predecessor, exterior_points):
+    exterior_point_deviation_from_prececessor = exterior_points - branch_predecessor[:, np.newaxis]
+    is_connecting_point = np.all(
+        np.isin(exterior_point_deviation_from_prececessor, [-1, 0, 1]),
+        axis=0
+    )
+    assert is_connecting_point.any()
+    return exterior_points[:, np.argmax(is_connecting_point)]
+
+
+def traverse_exterior_to_next(branch_point, branch_predecessor, region_points, predecessor_connected_component):
+    neighboring_points = get_neighbors(branch_point[:, np.newaxis])
+    neighboring_regions = get_neighbor_values_over_array(region_points, branch_point[:, np.newaxis])
+    exterior_indices = np.flatnonzero(np.not_equal(neighboring_regions, region_points[*branch_point]))
+    exterior_points = neighboring_points[:, 0, exterior_indices]
+    exterior_self_connections = np.array(
+        np.nonzero(
+            np.all(
+                np.isin(exterior_points[:, :, np.newaxis] - exterior_points[:, np.newaxis, :], [-1, 0, 1]),
+                axis=0
+            ) & np.any(
+                np.isin(exterior_points[:, :, np.newaxis] - exterior_points[:, np.newaxis, :], [-1, 1]),
+                axis=0
+            )
+        )
+    )
+    exterior_to_candidate_point_deviations = exterior_points[:, :, np.newaxis] - \
+                                             predecessor_connected_component[:, np.newaxis, :]
+    exterior_connections_to_predecessor_connected_components = np.array(
+        np.nonzero(
+            np.all(
+                np.isin(exterior_to_candidate_point_deviations, [-1, 0, 1]), axis=0
+            ) & np.any(
+                np.equal(exterior_to_candidate_point_deviations, 0), axis=0
+            )
+        )
+    )
+    full_connections = np.concat([
+        exterior_self_connections,
+        exterior_connections_to_predecessor_connected_components + np.array([[0], [exterior_points.shape[1]]])
+    ], axis=1)
+    connections_graph = coo_array(
+        ([True] * full_connections.shape[1], full_connections),
+        shape=[exterior_points.shape[1] + predecessor_connected_component.shape[1]] * 2
+    ).toarray()
+    branch_prececessor_joining_exterior_point = find_exterior_connecting_branch_and_previous(
+        branch_predecessor,
+        exterior_points
+    )
+    branch_prececessor_joining_exterior_point_index = np.argmax(
+        np.all(
+            np.equal(exterior_points, branch_prececessor_joining_exterior_point[:, np.newaxis])
+        )
+    )
+    shortest_path_from_connected_exterior = shortest_path(
+        connections_graph,
+        directed=False,
+        indices=[branch_prececessor_joining_exterior_point_index]
+    )[0]
+    predecessor_connected_component_shortest_path = shortest_path_from_connected_exterior[exterior_points.shape[1]:]
+    return predecessor_connected_component[:, np.argmin(predecessor_connected_component_shortest_path)]
+
+
+def find_next_start_list(branch_point_components, branch_point, branch_predecessor, searched, region_points):
     branch_neighbors = get_neighbors(branch_point[:, np.newaxis])[:, 0, :]
     if branch_predecessor is None:
         return branch_neighbors[:, np.not_equal(branch_point_components, -1)]
@@ -309,13 +268,40 @@ def find_next_start_list(branch_point_components, branch_point, branch_predecess
     )
     if not is_unsearched_predecessor_component.any():
         return np.zeros([2, 0], dtype=np.int32)
-    predecessor_connected_components = branch_neighbors[:, is_unsearched_predecessor_component]
+    predecessor_connected_component = branch_neighbors[:, is_unsearched_predecessor_component]
     connected_offset = offset_matrix[:, 0, is_unsearched_predecessor_component]
     neighbor_unit_offsets = connected_offset/np.linalg.norm(connected_offset, axis=0, keepdims=True)
     predecessor_offset = branch_point - branch_predecessor
     predecessor_unit_offset = predecessor_offset / np.linalg.norm(predecessor_offset, axis=0, keepdims=True)
     next_start_test = np.dot(predecessor_unit_offset, neighbor_unit_offsets)
-    return predecessor_connected_components[:, np.argsort(1 - next_start_test)]
+    return predecessor_connected_component[:, np.argsort(1 - next_start_test)]
+
+
+def find_next_start(branch_point_components, branch_point, branch_predecessor, searched, region_points):
+    branch_neighbors = get_neighbors(branch_point[:, np.newaxis])[:, 0, :]
+    if branch_predecessor is None:
+        return branch_neighbors[:, np.not_equal(branch_point_components, -1)]
+    branch_neighbor_labels = coo_array(
+        (branch_point_components, branch_neighbors + 1),
+        shape=np.max(branch_neighbors, axis=1) + 2
+    )
+    searched_mask = coo_array(
+        ([True] * searched.shape[1], searched + 1),
+        shape=np.max(np.concat((searched, branch_neighbors), axis=1), axis=1) + 2
+    )
+    predecessor_label = branch_neighbor_labels[*(branch_predecessor + 1)]
+    is_unsearched_neighbor = np.logical_not(searched_mask[*(branch_neighbors + 1)].toarray())
+    is_unsearched_predecessor_component = np.equal(branch_point_components, predecessor_label) & \
+        is_unsearched_neighbor & np.logical_not(
+            np.all(np.equal(branch_neighbors, branch_predecessor[:, np.newaxis]), axis=0)
+    )
+    if not is_unsearched_predecessor_component.any():
+        return None
+    predecessor_connected_component = branch_neighbors[:, is_unsearched_predecessor_component]
+    if predecessor_connected_component.shape[1] == 1:
+        return predecessor_connected_component[:, 0]
+    else:
+        return traverse_exterior_to_next(branch_point, branch_predecessor, region_points, predecessor_connected_component)
 
 
 def get_unsearched_points_in_cell(cells, start_point, searched, cell_map):
@@ -333,7 +319,7 @@ def get_unsearched_points_in_cell(cells, start_point, searched, cell_map):
 def check_point_components(points, point_index_map, connections, branch_component_map):
     point_indices = np.sort(point_index_map[*points])
     point_components_1 = branch_component_map[point_indices].toarray()
-    point_graph = get_window_point_graph(point_indices, connections).toarray()
+    point_graph = get_point_list_graph(point_indices, connections).toarray()
     _, point_components_2 = connected_components(point_graph, directed=False)
     unique_component_pairs = np.unique(np.stack([point_components_1, point_components_2], axis=0), axis=1)
     _, component_2_counts = np.unique(unique_component_pairs, axis=1, return_counts=True)
@@ -362,6 +348,123 @@ def is_point(point, to_equal):
     return np.all(np.equal(point, to_equal))
 
 
+def test_candidate_branches_with_full_exclusion(
+        branch_point,
+        next_list,
+        cells,
+        cell_map,
+        branch_point_map,
+        branch_point_components,
+        searched,
+        connections,
+        border_point_mask,
+        point_index_map,
+        points,
+        iteration,
+        region_points) -> Generator[NDArray, None, None]:
+    for candidate_index, next_point_candidate in enumerate(next_list.T):
+        exclusion_list = np.stack(
+            [
+                branch_point,
+                *[exclusion_point for exclusion_index, exclusion_point in enumerate(next_list.T) if exclusion_index != candidate_index]
+            ],
+            axis=1
+        )
+        candidate_branch = navigate_through_points(
+            next_point_candidate,
+            branch_point,
+            cells,
+            cell_map,
+            branch_point_map,
+            branch_point_components,
+            [*searched, exclusion_list],
+            connections,
+            border_point_mask,
+            point_index_map,
+            points,
+            iteration + 1,
+            region_points
+        )
+        yield candidate_branch
+
+
+def navigate_from_branch(
+        branch_point,
+        next_list,
+        cells,
+        cell_map,
+        branch_point_map,
+        branch_point_components,
+        searched,
+        connections,
+        border_point_mask,
+        point_index_map,
+        points,
+        iteration,
+        region_points):
+    candidate_branches = list(test_candidate_branches_with_full_exclusion(
+        branch_point,
+        next_list,
+        cells,
+        cell_map,
+        branch_point_map,
+        branch_point_components,
+        searched,
+        connections,
+        border_point_mask,
+        point_index_map,
+        points,
+        iteration,
+        region_points
+    ))
+    longest_candidate = np.argmax([branch.shape[1] for branch in candidate_branches])
+    path_from_longest_continuation = candidate_branches[longest_candidate][:, 1:]
+    other_branches = np.stack([
+        candidate_branch for candidate_index, candidate_branch in enumerate(next_list.T)
+        if candidate_index != longest_candidate
+    ], axis=0)
+    other_branch_paths = [
+        navigate_through_points(
+            next_point_candidate,
+            branch_point,
+            cells,
+            cell_map,
+            branch_point_map,
+            branch_point_components,
+            [*searched, path_from_longest_continuation],
+            connections,
+            border_point_mask,
+            point_index_map,
+            points,
+            iteration + 1,
+            region_points
+        )
+        for next_point_candidate in other_branches
+    ]
+    other_branch_paths_continuation_occurrence = np.array([
+        (np.argmax(
+            np.all(np.equal(branch_path, next_list[:, [longest_candidate]]), axis=1)
+        ), branch_index) for branch_index, branch_path in enumerate(other_branch_paths)
+        if np.any(np.all(np.equal(branch_path, next_list[:, [longest_candidate]]), axis=1))
+    ])
+    if other_branch_paths_continuation_occurrence.shape[0] > 0:
+        max_path_index_and_distance = other_branch_paths_continuation_occurrence[
+            np.argmax(other_branch_paths_continuation_occurrence[:, 0])
+        ]
+        branch_to_continuation = other_branch_paths[max_path_index_and_distance[1]]
+        return np.concat([
+            branch_point[:, np.newaxis],
+            branch_to_continuation[:, :max_path_index_and_distance[0] + 1],
+            path_from_longest_continuation
+        ], axis=1)
+    else:
+        return np.concat([
+            branch_point[:, np.newaxis],
+            candidate_branches[longest_candidate]
+        ], axis=1)
+
+
+
 def navigate_through_points(
         start_point,
         previous_point,
@@ -374,59 +477,89 @@ def navigate_through_points(
         border_point_mask,
         point_index_map,
         points,
-        iteration
-):
+        iteration,
+        region_points
+) -> NDArray:
     unwound_searched = np.concat(searched, axis=1)
     if branch_point_map[*start_point] >= 0:
-        next_list = find_next_start_list(
+        # next_list = find_next_start_list(
+        #     branch_point_components[branch_point_map[*start_point]],
+        #     start_point,
+        #     previous_point,
+        #     unwound_searched,
+        #     region_points
+        # )
+        # if next_list.shape[1] == 0:
+        #     return start_point[:, np.newaxis]
+        # elif next_list.shape[1] == 1:
+        #     return np.concat([
+        #         start_point[:, np.newaxis],
+        #         navigate_through_points(
+        #             next_list[:, 0],
+        #             start_point,
+        #             cells,
+        #             cell_map,
+        #             branch_point_map,
+        #             branch_point_components,
+        #             [*searched, start_point[:, np.newaxis]],
+        #             connections,
+        #             border_point_mask,
+        #             point_index_map,
+        #             points,
+        #             iteration + 1,
+        #             region_points
+        #         )
+        #     ], axis=1)
+        # else:
+        #     return navigate_from_branch(
+        #         start_point,
+        #         next_list,
+        #         cells,
+        #         cell_map,
+        #         branch_point_map,
+        #         branch_point_components,
+        #         searched,
+        #         connections,
+        #         border_point_mask,
+        #         point_index_map,
+        #         points,
+        #         iteration,
+        #         region_points
+        #     )
+        next_start = find_next_start(
             branch_point_components[branch_point_map[*start_point]],
             start_point,
             previous_point,
-            unwound_searched)
-        candidate_continuations = []
-        if next_list.shape[1] == 0:
+            unwound_searched,
+            region_points
+        )
+        if next_start is None:
             return start_point[:, np.newaxis]
-        for next_point_candidate in next_list.T:
-            candidate_continuation = navigate_through_points(
-                next_point_candidate,
-                start_point,
-                cells,
-                cell_map,
-                branch_point_map,
-                branch_point_components,
-                [*searched, start_point[:, np.newaxis]],
-                connections,
-                border_point_mask,
-                point_index_map,
-                points,
-                iteration + 1
-            )
-            found_points = np.concat(
-                [unwound_searched, start_point[:, np.newaxis], candidate_continuation], axis=1
-            )
-            candidate_found_map = coo_array(
-                ([True] * found_points.shape[1], found_points),
-                shape=border_point_mask.shape
-            )
-            if candidate_found_map[*points].toarray().all():
-                return np.concat(
-                    [start_point[:, np.newaxis], candidate_continuation], axis=1
+        else:
+            return np.concat([
+                start_point[:, np.newaxis],
+                navigate_through_points(
+                    next_start,
+                    start_point,
+                    cells,
+                    cell_map,
+                    branch_point_map,
+                    branch_point_components,
+                    [*searched, start_point[:, np.newaxis]],
+                    connections,
+                    border_point_mask,
+                    point_index_map,
+                    points,
+                    iteration + 1,
+                    region_points
                 )
-            else:
-                candidate_continuations.append(candidate_continuation)
-        return np.concat(
-                    [
-                        start_point[:, np.newaxis],
-                        candidate_continuations[np.argmax([
-                            candidate.shape[1] for candidate in candidate_continuations])
-                        ]], axis=1
-                )
+            ], axis=1)
 
     unordered_cell_points = get_unsearched_points_in_cell(cells, start_point, unwound_searched, cell_map)
     if unordered_cell_points.shape[1] == 1:
         return start_point[:, np.newaxis]
     cell_point_indexes = np.sort(point_index_map[*unordered_cell_points])
-    cell_graph = get_window_point_graph(cell_point_indexes, connections)
+    cell_graph = get_point_list_graph(cell_point_indexes, connections)
     cell_points = points[:, cell_point_indexes]
     is_start_point = np.all(np.equal(start_point[:, np.newaxis], cell_points), axis=0)
     assert is_start_point.any()
@@ -436,7 +569,7 @@ def navigate_through_points(
         indices=[np.argmax(is_start_point)],
         return_predecessors=True
     )
-    non_start_indices = np.flatnonzero(np.logical_not(is_start_point))
+    non_start_indices = np.flatnonzero(np.logical_not(is_start_point | np.isinf(point_distances_wrapped[0])))
     non_start_points = cell_points[:, non_start_indices]
     distances_from_start = point_distances_wrapped[0, non_start_indices]
     branch_indices = np.flatnonzero(
@@ -478,7 +611,8 @@ def navigate_through_points(
                     border_point_mask,
                     point_index_map,
                     points,
-                    iteration + 1
+                    iteration + 1,
+                    region_points
                 )
             ],
             axis=1
@@ -499,12 +633,10 @@ def split_cells(border_cells, point_index_map, connections):
         cell_sorting = np.argsort(cell_point_indices_unsorted)
         cell_point_indices = cell_point_indices_unsorted[cell_sorting]
         cell = cell_unsorted[:, cell_sorting]
-        cell_graph = get_window_point_graph(cell_point_indices, connections)
+        cell_graph = get_point_list_graph(cell_point_indices, connections)
         label_count, point_labels = connected_components(cell_graph, directed=False)
         for label in range(label_count):
             yield cell[:, np.equal(point_labels, label)]
-
-
 
 
 def merge_cells(border_cells: List[NDArray], target_size, image_shape):
@@ -535,12 +667,13 @@ def merge_cells(border_cells: List[NDArray], target_size, image_shape):
         )
 
 
-def order_points(border_points: NDArray, region_points: NDArray):
-    unfiltered_border_connections = get_pixel_connections(border_points, region_points.shape)
-    grid_target_size = max(
-        min(math.sqrt(border_points.shape[1]), TARGET_MAX_SIZE),
-        TARGET_MIN_SIZE
-    )
+def order_points(border_points: NDArray, region_points: NDArray, border_connections):
+    unique_point_indices, index_counts = np.unique(border_connections[0], return_counts=True)
+    branch_points = border_points[
+        :,
+        unique_point_indices[np.greater(index_counts, 2)]
+    ]
+    grid_target_size = TARGET_MAX_SIZE
     original_point_index_map = coo_array(
         (np.arange(border_points.shape[1]) + 1, border_points),
         shape=region_points.shape
@@ -560,7 +693,7 @@ def order_points(border_points: NDArray, region_points: NDArray):
     split_cells_res = list(split_cells(
         [cell.points for cell in border_cells_unmerged],
         original_point_index_map,
-        unfiltered_border_connections))
+        border_connections))
     border_cells = merge_cells(
         split_cells_res,
         grid_target_size, region_points.shape)
@@ -571,30 +704,23 @@ def order_points(border_points: NDArray, region_points: NDArray):
         ),
         shape=region_points.shape
     )
-    cell_branch_points_unfiltered = np.concat([find_branch_points(cell, unfiltered_border_connections, original_point_index_map)
-                               for cell in border_cells], axis=1)
-    cell_branch_points, border_connections = filter_branches(
-        cell_branch_points_unfiltered,
-        unfiltered_border_connections,
-        original_point_index_map,
-        border_points)
     _, branch_connections_test = np.unique(
-        border_connections[0, np.isin(border_connections[0], original_point_index_map[*cell_branch_points])],
+        border_connections[0, np.isin(border_connections[0], original_point_index_map[*branch_points])],
         return_counts=True
     )
     crossing_points = find_cell_crossings(border_cells)
-    branch_points = np.unique(
-        np.concat([cell_branch_points, crossing_points], axis=1),
+    navigation_point = np.unique(
+        np.concat([branch_points, crossing_points], axis=1),
         axis=1
     )
-    if branch_points.shape[1] > 0:
+    if navigation_point.shape[1] > 0:
         branch_point_components = find_branch_components(
-            branch_points,
+            navigation_point,
             region_points,
             border_points
         )
         branch_point_map = coo_array(
-            (np.arange(branch_points.shape[1]) + 1, branch_points),
+            (np.arange(navigation_point.shape[1]) + 1, navigation_point),
             shape=region_points.shape,
             dtype=np.int32
         ).toarray() - 1
@@ -602,7 +728,7 @@ def order_points(border_points: NDArray, region_points: NDArray):
         branch_point_components = np.reshape([], [0, 8])
         branch_point_map = np.full(region_points.shape, -1)
 
-    start_point = find_border_end_points(border_points, region_points, border_connections)
+    start_point = find_border_start_point(border_points, region_points, border_connections)
     if start_point is None:
         is_branch = np.not_equal(branch_point_map[*border_points], -1)
         is_branch_connection = np.any(is_branch[border_connections], axis=0)
@@ -641,7 +767,8 @@ def order_points(border_points: NDArray, region_points: NDArray):
                 border_point_mask,
                 original_point_index_map,
                 border_points,
-                0
+                0,
+                region_points
             )
         ),
         axis=1
@@ -649,10 +776,10 @@ def order_points(border_points: NDArray, region_points: NDArray):
     # test_region(region_points.shape, point_order)
     # Ensuring border traversal is likely unnecessary - the border will be simplified afterwards, so a few missed
     # points will have little to no effect on the final result
-    # order_test = coo_array(
-    #     (np.arange(point_order.shape[1]) + point_order.shape[1], point_order),
-    #     shape=region_points.shape
-    # ).toarray()
+    order_test = coo_array(
+        (np.arange(point_order.shape[1]) + point_order.shape[1], point_order),
+        shape=region_points.shape
+    ).toarray()
     # assert np.all(np.greater(order_test[*border_points], 0))
     return point_order, is_loop
 

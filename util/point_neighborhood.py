@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.typing import NDArray
 from scipy.sparse import coo_array
 
 offset_matrix = np.array([
@@ -7,7 +8,7 @@ offset_matrix = np.array([
 ])
 
 
-def get_neighbors(initial_set):
+def get_neighbors(initial_set: NDArray):
     return initial_set[:, :, np.newaxis] + offset_matrix
 
 
@@ -21,8 +22,11 @@ def get_neighbor_values(point_list, point_values, initial_set):
     return offset_index_map[*offset_set_neighbors].toarray() - 1
 
 
-def get_neighbor_values_over_array(values_array, initial_set):
-    padded_array_values = np.pad(values_array, ((1, 1), (1, 1)), mode="constant", constant_values=-1)
+def get_neighbor_values_over_array(values_array: NDArray, initial_set):
+    if values_array.dtype == np.bool:
+        padded_array_values = np.pad(values_array, ((1, 1), (1, 1)), mode="constant", constant_values=False)
+    else:
+        padded_array_values = np.pad(values_array, ((1, 1), (1, 1)), mode="constant", constant_values=-1)
     set_neighbors = initial_set[:, :, np.newaxis] + offset_matrix
     offset_set_neighbors = set_neighbors + 1
     return padded_array_values[*offset_set_neighbors]

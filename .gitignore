@@ -5,3 +5,4 @@ __pycache__/
 *.jpg
 *.clip
 validation_failure_list.txt
+config.json

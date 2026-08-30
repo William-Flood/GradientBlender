@@ -1,6 +1,6 @@
 import math
 import time
-
+from util.config import config_obj
 from color_mapper import color_mapper
 from borders.detector import detect_drawn_border
 from borders.divide import divide_borders
@@ -11,6 +11,8 @@ from regions.region import Region
 from typing import Dict
 from util.inspection_utils import *
 from image.validate import validate
+from borders.connection_filter import ConnectionFilter
+from util.inspection_utils_gui import visualize_point_list
 
 
 def get_interpolations(
@@ -276,7 +278,10 @@ def subdivided_border_tangent_interpolation_fill(
         border_defuzz_threshold=5,
         region_proportion_threshold=0.01,
         decimate_deviation_cutoff=3,
-        border_decimate_point_count_threshold=5):
+        border_decimate_point_count_threshold=5,
+        config_file_name=""
+):
+    config_obj.load(config_file_name)
     guide_image = Image.open(guide_image_file)
     guide_image_array = np.array(guide_image)
     guide_image_shape = guide_image_array.shape[:2]
@@ -298,6 +303,7 @@ def subdivided_border_tangent_interpolation_fill(
     regions_borders_raw = detect_drawn_border(regions_array, values_array)
     regions_borders: Dict[int, Dict[int, Region]] = dict()
     total_borders = []
+    connection_filter = ConnectionFilter()
     for region_id, border_map in regions_borders_raw.items():
         print(f"Creating borders for region {region_id}")
         region_border = dict()
@@ -312,13 +318,20 @@ def subdivided_border_tangent_interpolation_fill(
                     border_points,
                     region_dict[region_id],
                     bordering_region,
-                    regions_array
+                    regions_array,
+                    connection_filter
                 )
                 total_borders.extend(split_borders)
                 region_border[bordering_region_id] = split_borders
                 for border in split_borders:
                     region_dict[region_id].add_border(border)
                     region_dict[bordering_region_id].add_border(border)
+    # visualize_point_list(
+    #         np.unique(np.concat([
+    #         border.full_points for border in total_borders
+    #     ], axis=1), axis=1)
+    # )
+    connection_filter.save_remaining_samples()
     start_time = time.time()
     decimate_index = 0
     print("Decimating borders")
@@ -328,6 +341,6 @@ def subdivided_border_tangent_interpolation_fill(
     elapsed = time.time() - start_time
     # print(elapsed)
     draw_borders(total_borders, guide_image_shape)
-    for region in region_dict.values():
-        if not region.is_void:
-            region.create_loops(border_defuzz_threshold)
+    # for region in region_dict.values():
+    #     if not region.is_void:
+    #         region.create_loops(border_defuzz_threshold)

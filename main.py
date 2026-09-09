@@ -94,7 +94,7 @@ def subdivided_border_main():
     parser.add_argument(
         "-region_defuzz_threshold",
         type=float,
-        default=20,
+        default=10,
         help=(
             "Threshold used to filter out errant pixels"
         )
@@ -128,6 +128,15 @@ def subdivided_border_main():
     )
 
     parser.add_argument(
+        "-edge_subdivide_ratio",
+        type=float,
+        default=3,
+        help=(
+            "Used during concave polygon splitting to decide when to subdivide an existing edge"
+        )
+    )
+
+    parser.add_argument(
         "-system_config_file",
         type=str,
         default="config.json",
@@ -152,6 +161,7 @@ def subdivided_border_main():
         border_defuzz_threshold=args.border_defuzz_threshold,
         region_proportion_threshold=args.region_proportion_threshold,
         decimate_deviation_cutoff=args.decimate_deviation_cutoff,
+        edge_subdivide_ratio=args.edge_subdivide_ratio,
         config_file_name=args.system_config_file
     )
     print(f"Elapsed: {time.time() - start_time}")

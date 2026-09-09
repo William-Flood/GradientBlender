@@ -30,12 +30,16 @@ def visualize_point_list(points, point_data=None):
     Process(target=launch_window()).start()
 
 
+def launch_array_window(array_nested, array_data_nested):
+    inspector = InspectionWindow()
+    inspector.load_array(array_nested, array_data_nested)
+
 
 def visualize_array(array, array_data=None):
     if array_data is None:
         array_data = array
-    inspector = InspectionWindow()
-    inspector.load_array(array, array_data)
+
+    Process(target=launch_array_window, args=(array, array_data)).start()
 
 
 class InspectionWindow:
@@ -121,8 +125,34 @@ class InspectionWindow:
             self.data_label_var.set(str(point_values[point_index - 1]))
 
     def load_array(self, array, array_data):
-        # TODO
-        pass
+        matrix_range = np.max(array) - np.min(array)
+        zeroed_matrix = array - np.min(array)
+        subpixel_values = (zeroed_matrix * 255 / matrix_range).astype(np.uint8)
+        self.pixel_value_array = np.repeat(subpixel_values[:, :, np.newaxis], 3, axis=2)
+        self.zoom_window = np.array([
+            [0, array.shape[0]],
+            [0, array.shape[1]]
+        ])
+        self.redraw()
+        def check_at_coords(y, x):
+            return array_data[y, x]
+        self.canvas.bind("<Motion>", lambda event: self.roll_over_array(
+            event,
+            check_at_coords,
+            array.shape))
+        self.root.mainloop()
+
+    def roll_over_array(self, event, point_value_fn, array_shape):
+        zoom_window_coords = self.event_to_zoom_window(event)
+        array_x = int(self.zoom_window[1, 0] + zoom_window_coords[1])
+        array_y = int(self.zoom_window[0, 0] + zoom_window_coords[0])
+        array_x_guarded = min(array_x, array_shape[1] - 1)
+        array_y_guarded = min(array_y, array_shape[0] - 1)
+        y_label_value = str(array_y)
+        x_label_value = str(array_x)
+        self.y_label_var.set(y_label_value)
+        self.x_label_var.set(x_label_value)
+        self.data_label_var.set(str(point_value_fn(array_y_guarded, array_x_guarded)))
 
     def start_zoom(self, event):
         if not self.in_zoom:

@@ -11,6 +11,7 @@ class ConfigurationOptions:
     # The target size for partitioning a border into chunks for batch processing
     border_chunk_target_size = 500
     cut_direction_change_dropoff_rage = 5
+    edge_cut_threshold = 3
 
     def load(self, file_name):
         if len(file_name) > 0:
@@ -25,6 +26,8 @@ class ConfigurationOptions:
                         self.border_chunk_target_size = configDict["border_chunk_target_size"]
                     if "cut_direction_change_dropoff_rage" in configDict:
                         self.cut_direction_change_dropoff_rage = configDict["cut_direction_change_dropoff_rage"]
+                    if "edge_cut_threshold" in configDict:
+                        self.edge_cut_threshold = configDict["edge_cut_threshold"]
             else:
                 sys.stderr.write(f"Configuration file {file_name} not found")
 

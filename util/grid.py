@@ -145,7 +145,6 @@ class Grid:
 
     def __init__(self, grid_shape, points):
         image_height, image_width = grid_shape
-        self.grid_shape = grid_shape
         self.grid = np.array([[[0, image_height]], [[0, image_width]]], dtype=np.int32)
         self.points_per_grid = np.reshape(points, [2, 1, -1])
         self.padding_mask = np.ones([1, points.shape[1]], dtype=np.bool)

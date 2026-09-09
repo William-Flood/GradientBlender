@@ -1,18 +1,18 @@
-import math
-import time
 from util.config import config_obj
 from color_mapper import color_mapper
 from borders.detector import detect_drawn_border
 from borders.divide import divide_borders
 from borders.decimate import decimate
 from regions.identify_image_regions import identify_image_regions
-from image.draw_borders import draw_borders
+from image.draw_region import draw_polygons
 from regions.region import Region
 from typing import Dict
 from util.inspection_utils import *
 from image.validate import validate
 from borders.connection_filter import ConnectionFilter
-from util.inspection_utils_gui import visualize_point_list
+from util.inspection_utils_gui import visualize_array
+from polygon.cut_concave import cut_concave_regions
+from polygon.cut_out_quads import cut_out_quads
 
 
 def get_interpolations(
@@ -271,34 +271,17 @@ def closest_and_opposite_interpolation_fill(guide_image_file, result_image_file,
     Image.fromarray(gradient_array.astype(np.uint8)).save(result_image_file)
 
 
-def subdivided_border_tangent_interpolation_fill(
-        guide_image_file,
-        result_image_file,
-        region_defuzz_threshold=20,
-        border_defuzz_threshold=5,
-        region_proportion_threshold=0.01,
-        decimate_deviation_cutoff=3,
-        border_decimate_point_count_threshold=5,
-        config_file_name=""
-):
-    config_obj.load(config_file_name)
-    guide_image = Image.open(guide_image_file)
-    guide_image_array = np.array(guide_image)
-    guide_image_shape = guide_image_array.shape[:2]
-    color_map = color_mapper(guide_image_array, region_proportion_threshold)
-    values_array = np.full(guide_image_shape, -1.0)
-    for value, points in color_map.items():
-        points_array = np.array(points)
-        values_array[points_array[...,0], points_array[...,1]] = value
-    validate(values_array)
-    regions_points, region_values = identify_image_regions(values_array, region_defuzz_threshold)
-    regions_array = np.full(guide_image_shape, -1.0, dtype=np.int32)
+def make_border_loops(
+        regions: list[Region],
+        decimate_deviation_cutoff,
+        image_shape,
+        values_array,
+        border_defuzz_threshold):
+    regions_array = np.full(image_shape, -1)
     region_dict = dict()
-    for region_index, points in enumerate(regions_points):
-        region_value = values_array[*points[:, 0]]
-        # if region_value >= 0:
-        regions_array[*points] = region_index
-        region_dict[region_index] = Region(region_value, region_index, points)
+    for region in regions:
+        regions_array[*region.points] = region.id
+        region_dict[region.id] = region
     # regions_csv = matrix_to_csv(regions_array)
     regions_borders_raw = detect_drawn_border(regions_array, values_array)
     regions_borders: Dict[int, Dict[int, Region]] = dict()
@@ -332,15 +315,62 @@ def subdivided_border_tangent_interpolation_fill(
     #     ], axis=1), axis=1)
     # )
     connection_filter.save_remaining_samples()
-    start_time = time.time()
-    decimate_index = 0
     print("Decimating borders")
     for border in total_borders:
         decimate(border, decimate_deviation_cutoff)
-        decimate_index += 1
-    elapsed = time.time() - start_time
-    # print(elapsed)
-    draw_borders(total_borders, guide_image_shape)
-    # for region in region_dict.values():
-    #     if not region.is_void:
-    #         region.create_loops(border_defuzz_threshold)
+    def inspect_regions():
+        border_array = np.ones(image_shape)
+        for border in total_borders:
+            border_array[*border.full_points] = 0
+        visualize_array(border_array, regions_array)
+    for region in region_dict.values():
+        if not region.is_void:
+            region.create_loops(border_defuzz_threshold)
+    loop_sorted_borders = (
+        [border for border in total_borders if not border.is_loop] +
+        [border for border in total_borders if border.is_loop]
+    )
+    for border in loop_sorted_borders:
+        border.cinch_endpoints()
+    for region in region_dict.values():
+        if not region.is_void:
+            region.form_initial_polygon()
+    # draw_borders(total_borders, image_shape)
+
+
+def normalize_polygons(regions, edge_subdivide_ratio):
+    cut_concave_regions(regions, edge_subdivide_ratio)
+    cut_out_quads(regions)
+
+
+
+def subdivided_border_tangent_interpolation_fill(
+    guide_image_file,
+    result_image_file,
+    region_defuzz_threshold=10,
+    border_defuzz_threshold=5,
+    region_proportion_threshold=0.01,
+    decimate_deviation_cutoff=3,
+    edge_subdivide_ratio=3,
+    config_file_name=""
+):
+    config_obj.load(config_file_name)
+    guide_image = Image.open(guide_image_file)
+    guide_image_array = np.array(guide_image)
+    guide_image_shape = guide_image_array.shape[:2]
+    color_map = color_mapper(guide_image_array, region_proportion_threshold)
+    values_array = np.full(guide_image_shape, -1.0)
+    for value, points in color_map.items():
+        points_array = np.array(points)
+        values_array[points_array[...,0], points_array[...,1]] = value
+    validate(values_array)
+    regions = identify_image_regions(values_array, region_defuzz_threshold)
+    make_border_loops(
+        regions,
+        decimate_deviation_cutoff,
+        guide_image_shape,
+        values_array,
+        border_defuzz_threshold)
+    normalize_polygons(regions, edge_subdivide_ratio)
+    # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
+    draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

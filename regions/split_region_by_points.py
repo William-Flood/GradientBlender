@@ -1,6 +1,4 @@
 import math
-
-import numpy as np
 from numpy.typing import NDArray
 from regions.identify_regions_floodfill import identify_regions
 from util.point_neighborhood import get_neighbor_values_over_array
@@ -9,6 +7,7 @@ from scipy.spatial.distance import cdist
 from util.inspection_utils import *
 from util.inspection_utils_gui import visualize_point_list
 from util.config import config_obj
+from util.rasterize import rasterize_line
 
 
 def get_region_border(region, target_region, image_shape):
@@ -24,11 +23,6 @@ def find_default_connection_points_and_distances_between(
         region_one,
         region_two
 ):
-    # region_point_deviations = np.reshape(
-    #     region_one[:, :, np.newaxis] - region_two[:, np.newaxis, :],
-    #     [2, -1]
-    # )
-    # point_distances = np.linalg.norm(region_point_deviations, axis=0)
     point_distances = cdist(region_one.T, region_two.T, "euclidean").flatten()
     smallest_distance_index = np.argmin(point_distances)
     shortest_distance_points = np.unravel_index(
@@ -75,11 +69,11 @@ def find_default_connection_points_and_distances(region_list):
 
 
 def exponential_scale(dots_to_deviations, penalty_scale):
-    e = penalty_scale - 1
+    e = penalty_scale - 0.5
     d = config_obj.cut_direction_change_dropoff_rage
-    c = (1 - d) / (d - e)
-    a = (e - d ** 2) / (-2 * d + e + 1)
-    b = ((a - 1) * (d - e))/(d - 1)
+    c = ((1 - d) / (d - e)) ** 2
+    b = (e - 1) / (1 - c)
+    a = e - b
     f = math.log(c)
     return a + b * np.exp(f * dots_to_deviations)
 
@@ -87,11 +81,6 @@ def exponential_scale(dots_to_deviations, penalty_scale):
 
 def directional_weights(dots_to_deviations, penalty_scale):
     linear_scale = (1 - dots_to_deviations) / 2
-    # sigmoid_vertical_scale = (penalty_scale - 2)
-    # scaled_inverse_sigmoid = sigmoid_vertical_scale / (
-    #         1 + np.exp(config_obj.cut_direction_change_dropoff_rage * dots_to_deviations)
-    # )
-    # return linear_scale + scaled_inverse_sigmoid + 1
     exponential_scale_results = exponential_scale(dots_to_deviations, penalty_scale)
     return linear_scale + exponential_scale_results
 
@@ -163,33 +152,34 @@ def select_region_and_cut(region_list, region_one_index, backtrack_guard, last_r
     return selected_cut
 
 
-def find_line_points(new_border_start_ends_list):
+def rasterize_cut(new_border_start_ends_list):
     new_points_list = []
     new_border_start_ends = np.array(new_border_start_ends_list)
     for cut in new_border_start_ends:
-        is_vertical = np.absolute(cut[1, 0] - cut[0, 0]) > np.absolute(cut[1, 1] - cut[0, 1])
-        if is_vertical:
-            cut_point_ordering = np.argsort(cut[:, 0])
-            normalized_cut = cut[cut_point_ordering]
-        else:
-            cut_point_ordering = np.argsort(cut[:, 1])
-            normalized_cut = np.roll(cut[cut_point_ordering], 1, axis=1)
-        new_points_normalized_indices = np.arange(normalized_cut[1, 0] - normalized_cut[0, 0] + 1)
-        new_points_normalized_ys = new_points_normalized_indices + normalized_cut[0, 0]
-        normalized_horizontal_step = (normalized_cut[1, 1] - normalized_cut[0, 1]) / \
-                                     (normalized_cut[1, 0] - normalized_cut[0, 0])
-        new_points_normalized_xs = (
-                new_points_normalized_indices * normalized_horizontal_step + normalized_cut[0, 1]
-        )
-        if is_vertical:
-            cut_points = np.stack([
-                new_points_normalized_ys, new_points_normalized_xs
-            ], axis=0)
-        else:
-            cut_points = np.stack([
-                new_points_normalized_xs, new_points_normalized_ys
-            ], axis=0)
-        new_points_list.append(cut_points)
+        # is_vertical = np.absolute(cut[1, 0] - cut[0, 0]) > np.absolute(cut[1, 1] - cut[0, 1])
+        # if is_vertical:
+        #     cut_point_ordering = np.argsort(cut[:, 0])
+        #     normalized_cut = cut[cut_point_ordering]
+        # else:
+        #     cut_point_ordering = np.argsort(cut[:, 1])
+        #     normalized_cut = np.roll(cut[cut_point_ordering], 1, axis=1)
+        # new_points_normalized_indices = np.arange(normalized_cut[1, 0] - normalized_cut[0, 0] + 1)
+        # new_points_normalized_ys = new_points_normalized_indices + normalized_cut[0, 0]
+        # normalized_horizontal_step = (normalized_cut[1, 1] - normalized_cut[0, 1]) / \
+        #                              (normalized_cut[1, 0] - normalized_cut[0, 0])
+        # new_points_normalized_xs = (
+        #         new_points_normalized_indices * normalized_horizontal_step + normalized_cut[0, 1]
+        # )
+        # if is_vertical:
+        #     cut_points = np.stack([
+        #         new_points_normalized_ys, new_points_normalized_xs
+        #     ], axis=0)
+        # else:
+        #     cut_points = np.stack([
+        #         new_points_normalized_xs, new_points_normalized_ys
+        #     ], axis=0)
+        # new_points_list.append(cut_points)
+        new_points_list.append(rasterize_line(cut[0], cut[1]))
     new_points = np.concat(new_points_list, axis=1).astype(np.int32)
     return new_points
 
@@ -235,7 +225,7 @@ def find_intra_target_borders(inside_regions, outside_regions):
             cut_traversal_index = next_cut[3]
             traversal.append(last_ray)
             traversal_indices[-1].append(cut_traversal_index)
-        traversals_points.append(find_line_points(traversal))
+        traversals_points.append(rasterize_cut(traversal))
         is_cut_out[previous_uncut] = True
         traversals.append(traversal)
     point_traversal_indices = np.array([traversal_index for traversal_index, traversal_points in enumerate(traversals_points)
@@ -322,7 +312,7 @@ def split_region(points, image_shape):
         new_regions_matrix = np.full(image_shape, -1)
         for region_id, region in enumerate(new_regions):
             new_regions_matrix[*region] = region_id
-        points_to_fill = between_borders
+        points_to_fill: NDArray = between_borders
         while points_to_fill.shape[1] > 0:
             between_borders_neighbors = get_neighbor_values_over_array(new_regions_matrix, points_to_fill)
             border_assignment_indices = np.argmax(np.not_equal(between_borders_neighbors, -1), axis=1, keepdims=True)

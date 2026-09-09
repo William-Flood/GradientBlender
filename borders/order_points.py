@@ -13,6 +13,7 @@ from util.point_neighborhood import (
     get_neighbor_values_over_array
 )
 from util.inspection_utils_gui import visualize_point_list
+from util.point_sublist_index_map import point_sublist_index_map
 
 TARGET_MAX_SIZE = 500
 
@@ -697,13 +698,7 @@ def order_points(border_points: NDArray, region_points: NDArray, border_connecti
     border_cells = merge_cells(
         split_cells_res,
         grid_target_size, region_points.shape)
-    cell_map = coo_array(
-        (
-            np.concat([[cell_index] * cell.shape[1] for cell_index, cell in enumerate(border_cells)]),
-            np.concat([cell for cell in border_cells], axis=1)
-        ),
-        shape=region_points.shape
-    )
+    cell_map = point_sublist_index_map(border_cells, region_points.shape)
     _, branch_connections_test = np.unique(
         border_connections[0, np.isin(border_connections[0], original_point_index_map[*branch_points])],
         return_counts=True

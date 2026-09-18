@@ -1,4 +1,6 @@
 import math
+
+import numpy as np
 from numpy.typing import NDArray
 from regions.identify_regions_floodfill import identify_regions
 from util.point_neighborhood import get_neighbor_values_over_array
@@ -11,8 +13,10 @@ from util.rasterize import rasterize_line
 
 
 def get_region_border(region, target_region, image_shape):
+    region_point_map = np.zeros(image_shape, dtype=bool)
+    region_point_map[*target_region] = True
     region_point_adjacency = get_neighbor_values_over_array(
-        coo_array(([True] * target_region.shape[1], target_region), shape=image_shape).toarray(),
+        region_point_map,
         region
     )
     contacts_region = np.any(region_point_adjacency, axis=1)
@@ -89,10 +93,27 @@ def test_weights():
     return directional_weights(1 - np.arange(101) / 50, 100)
 
 
+def get_region_2_point(cut_end, region_points, last_unit_ray, sideways_cut_penalty):
+    deviations_from_cut = region_points - cut_end[:, np.newaxis]
+    point_distances = np.linalg.norm(deviations_from_cut, axis=0)
+    unit_deviations = deviations_from_cut / point_distances
+    cut_dots = np.dot(last_unit_ray, unit_deviations)
+    is_forward = np.greater(cut_dots, 0)
+    if is_forward.any():
+        filtered_points = region_points[:, np.greater(cut_dots, 0)]
+        filtered_dots = cut_dots[np.greater(cut_dots, 0)]
+        filtered_distances = point_distances[np.greater(cut_dots, 0)]
+        weighted_distances = np.multiply(filtered_distances, np.exp(-1 * filtered_dots * math.log(sideways_cut_penalty)))
+        return filtered_points[:, np.argmin(weighted_distances)]
+    else:
+        return None
+
+
 def find_modified_connection_points_and_distances_between(
         region_one,
         region_two,
-        last_ray_points
+        last_ray_points,
+        sideways_cut_penalty
 ):
     """
     Finds a new pair of potential cut points based on the last cut made
@@ -107,25 +128,20 @@ def find_modified_connection_points_and_distances_between(
     """
     last_ray = last_ray_points[1] - last_ray_points[0]
     last_unit_ray = last_ray / np.linalg.norm(last_ray, axis=0, keepdims=True)
-    region_point_deviations = np.reshape(
-        region_two[:, np.newaxis, :] - region_one[:, :, np.newaxis],
-        [2, -1]
+    region_two_selected_point = get_region_2_point(
+        last_ray_points[1], region_two, last_unit_ray, sideways_cut_penalty
     )
-    point_distances = np.linalg.norm(region_point_deviations, axis=0)
-    assert np.greater(point_distances, 0).all()
-    region_point_unit_deviations = region_point_deviations / point_distances[np.newaxis, :]
-    dots_to_deviations = np.clip(np.dot(last_unit_ray, region_point_unit_deviations), -1.0, 1.0)
-    distance_adjustment = directional_weights(dots_to_deviations, np.max(point_distances))
-    adjusted_distances = np.multiply(point_distances, distance_adjustment)
-    smallest_distance_index = np.argmin(adjusted_distances)
-    shortest_distance_points = np.unravel_index(
-        smallest_distance_index, [region_one.shape[1], region_two.shape[1]
-                                  ])
-    return (
-        region_one[:, shortest_distance_points[0]],
-        region_two[:, shortest_distance_points[1]],
-        point_distances[smallest_distance_index]
-    )
+    if region_two_selected_point is not None:
+        region_point_one_deviations = region_one - region_two_selected_point[:, np.newaxis]
+        point_distances = np.linalg.norm(region_point_one_deviations, axis=0)
+        selected_point_index = np.argmin(point_distances)
+        return (
+            region_one[:, selected_point_index],
+            region_two_selected_point,
+            point_distances[selected_point_index]
+        )
+    else:
+        return None, None, None
 
 
 def select_cut(cut_and_distances, last_ray):
@@ -139,16 +155,19 @@ def select_cut(cut_and_distances, last_ray):
     return cut_and_distances[np.argmin(weighted_distances)]
 
 
-def select_region_and_cut(region_list, region_one_index, backtrack_guard, last_ray):
+def select_region_and_cut(region_list, region_one_index, backtrack_guard, last_ray, sideways_cut_penalty):
     cut_and_distances = [
         [*find_modified_connection_points_and_distances_between(
             region_list[region_one_index],
             other_region,
-            last_ray
+            last_ray,
+            sideways_cut_penalty
         ), other_index] for other_index, other_region in enumerate(region_list)
         if other_index != region_one_index and other_index not in backtrack_guard
     ]
-    selected_cut = select_cut(cut_and_distances, last_ray)
+    forward_cut_and_distances = [cut_and_distance for cut_and_distance in cut_and_distances
+                                 if cut_and_distance[0] is not None]
+    selected_cut = select_cut(forward_cut_and_distances, last_ray)
     return selected_cut
 
 
@@ -156,35 +175,12 @@ def rasterize_cut(new_border_start_ends_list):
     new_points_list = []
     new_border_start_ends = np.array(new_border_start_ends_list)
     for cut in new_border_start_ends:
-        # is_vertical = np.absolute(cut[1, 0] - cut[0, 0]) > np.absolute(cut[1, 1] - cut[0, 1])
-        # if is_vertical:
-        #     cut_point_ordering = np.argsort(cut[:, 0])
-        #     normalized_cut = cut[cut_point_ordering]
-        # else:
-        #     cut_point_ordering = np.argsort(cut[:, 1])
-        #     normalized_cut = np.roll(cut[cut_point_ordering], 1, axis=1)
-        # new_points_normalized_indices = np.arange(normalized_cut[1, 0] - normalized_cut[0, 0] + 1)
-        # new_points_normalized_ys = new_points_normalized_indices + normalized_cut[0, 0]
-        # normalized_horizontal_step = (normalized_cut[1, 1] - normalized_cut[0, 1]) / \
-        #                              (normalized_cut[1, 0] - normalized_cut[0, 0])
-        # new_points_normalized_xs = (
-        #         new_points_normalized_indices * normalized_horizontal_step + normalized_cut[0, 1]
-        # )
-        # if is_vertical:
-        #     cut_points = np.stack([
-        #         new_points_normalized_ys, new_points_normalized_xs
-        #     ], axis=0)
-        # else:
-        #     cut_points = np.stack([
-        #         new_points_normalized_xs, new_points_normalized_ys
-        #     ], axis=0)
-        # new_points_list.append(cut_points)
         new_points_list.append(rasterize_line(cut[0], cut[1]))
     new_points = np.concat(new_points_list, axis=1).astype(np.int32)
     return new_points
 
 
-def find_intra_target_borders(inside_regions, outside_regions):
+def find_intra_target_borders(inside_regions, outside_regions, sideways_cut_penalty):
     full_region_list = [*inside_regions, outside_regions]
     is_cut_out = np.array([
         *([False] * len(inside_regions)), True
@@ -218,7 +214,13 @@ def find_intra_target_borders(inside_regions, outside_regions):
         traversal = [last_ray]
         traversal_indices.append([cut_from_index, cut_traversal_index])
         while not is_cut_out[cut_traversal_index]:
-            next_cut = select_region_and_cut(full_region_list, cut_traversal_index, previous_uncut, last_ray)
+            next_cut = select_region_and_cut(
+                full_region_list,
+                cut_traversal_index,
+                previous_uncut,
+                last_ray,
+                sideways_cut_penalty
+            )
             previous_uncut.append(cut_traversal_index)
             last_ray = [next_cut[0], next_cut[1]]
             new_border_start_ends.append(last_ray)
@@ -248,14 +250,14 @@ def find_intra_target_borders(inside_regions, outside_regions):
     return np.unique(traversal_points, axis=1)
 
 
-def get_split_regions_borders(inside_regions, outside_regions, target_region, image_shape):
+def get_split_regions_borders(inside_regions, outside_regions, target_region, image_shape, sideways_cut_penalty):
     if len(outside_regions) == 0:
         outside_points = get_outside_coords(image_shape)
     else:
         outside_points = np.concat([*outside_regions, get_outside_coords(image_shape)], axis=1)
     outside_border = get_region_border(outside_points, target_region, image_shape)
     inside_borders = [get_region_border(region, target_region, image_shape) for region in inside_regions]
-    between_borders = find_intra_target_borders(inside_borders, outside_border)
+    between_borders = find_intra_target_borders(inside_borders, outside_border, sideways_cut_penalty)
     return between_borders
 
 
@@ -297,12 +299,18 @@ def find_hole_points(points, image_shape):
     return interior_region_points, outside_region_points
 
 
-def split_region(points, image_shape):
+def split_region(points, image_shape, sideways_cut_penalty):
     inside_regions, outside_regions = find_hole_points(points, image_shape)
     if len(inside_regions) == 0:
         return [points]
     else:
-        between_borders: NDArray = get_split_regions_borders(inside_regions, outside_regions, points, image_shape)
+        between_borders: NDArray = get_split_regions_borders(
+            inside_regions,
+            outside_regions,
+            points,
+            image_shape,
+            sideways_cut_penalty
+        )
         split_points_mask = np.ones(image_shape, dtype=bool)
         split_points_mask[*np.concat(inside_regions, axis=1)] = False
         split_points_mask[*np.concat(outside_regions, axis=1)] = False

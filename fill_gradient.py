@@ -286,7 +286,7 @@ def make_border_loops(
     regions_borders_raw = detect_drawn_border(regions_array, values_array)
     regions_borders: Dict[int, Dict[int, Region]] = dict()
     total_borders = []
-    connection_filter = ConnectionFilter()
+    # connection_filter = ConnectionFilter()
     for region_id, border_map in regions_borders_raw.items():
         print(f"Creating borders for region {region_id}")
         region_border = dict()
@@ -301,8 +301,7 @@ def make_border_loops(
                     border_points,
                     region_dict[region_id],
                     bordering_region,
-                    regions_array,
-                    connection_filter
+                    regions_array
                 )
                 total_borders.extend(split_borders)
                 region_border[bordering_region_id] = split_borders
@@ -314,7 +313,7 @@ def make_border_loops(
     #         border.full_points for border in total_borders
     #     ], axis=1), axis=1)
     # )
-    connection_filter.save_remaining_samples()
+    # connection_filter.save_remaining_samples()
     print("Decimating borders")
     for border in total_borders:
         decimate(border, decimate_deviation_cutoff)
@@ -348,6 +347,7 @@ def subdivided_border_tangent_interpolation_fill(
     guide_image_file,
     result_image_file,
     region_defuzz_threshold=10,
+    sideways_cut_penalty=100,
     border_defuzz_threshold=5,
     region_proportion_threshold=0.01,
     decimate_deviation_cutoff=3,
@@ -364,7 +364,7 @@ def subdivided_border_tangent_interpolation_fill(
         points_array = np.array(points)
         values_array[points_array[...,0], points_array[...,1]] = value
     validate(values_array)
-    regions = identify_image_regions(values_array, region_defuzz_threshold)
+    regions = identify_image_regions(values_array, region_defuzz_threshold, sideways_cut_penalty)
     make_border_loops(
         regions,
         decimate_deviation_cutoff,

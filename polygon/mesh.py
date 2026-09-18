@@ -59,6 +59,8 @@ def find_polygons_on_edge(polygons: list[NDArray], edge):
     if np.greater_equal(np.max(edge, axis=1), vertex_index_lookup.shape).any():
         return [], []
     vertex_indices = vertex_index_lookup[*edge].toarray() - 1
+    if np.less(vertex_indices, 0).any():
+        return [], []
     edge_index = edge_index_lookup[*np.sort(vertex_indices)] - 1
     if edge_index < 0:
         return [], []

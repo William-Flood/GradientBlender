@@ -25,7 +25,7 @@ def check_inner_loops(region_points, image_shape):
     return len(border_regions) > 1
 
 
-def remove_holes(region_points, values_array):
+def remove_holes(region_points, values_array, sideways_cut_penalty):
     test_i = 0
     for points in region_points:
         if values_array[*points[:, 0]] == -1:
@@ -34,7 +34,7 @@ def remove_holes(region_points, values_array):
             print(f"Checking for holes in {test_i}")
             if check_inner_loops(points, values_array.shape):
                 print(f"Splitting {test_i}")
-                split_point_set = split_region(points, values_array.shape)
+                split_point_set = split_region(points, values_array.shape, sideways_cut_penalty)
                 if len(split_point_set) > 1:
                     for point_set in split_point_set:
                         yield point_set
@@ -82,7 +82,7 @@ def get_value_mode(values_array, points):
     return unique_values[np.argmax(counts)]
 
 
-def identify_image_regions(values_array, defuzz_threshold):
+def identify_image_regions(values_array, defuzz_threshold, sideways_cut_penalty):
     print("Creating initial region map")
     regions_points = identify_regions(values_array)
     defuzzed_regions_points = defuzz_regions(regions_points, values_array, defuzz_threshold)
@@ -93,7 +93,7 @@ def identify_image_regions(values_array, defuzz_threshold):
          ), shape=values_array.shape
     ).toarray())
     split_region_points = []
-    for points in remove_holes(defuzzed_regions_points, values_array):
+    for points in remove_holes(defuzzed_regions_points, values_array, sideways_cut_penalty):
         split_region_points.append(points)
     return [
                 Region(get_value_mode(values_array, points), region_index, points)

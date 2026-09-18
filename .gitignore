@@ -6,3 +6,5 @@ __pycache__/
 *.clip
 validation_failure_list.txt
 config.json
+/GradientEngine.egg-info/
+/build/

@@ -126,10 +126,8 @@ def rank_evenness_preserving_cuts(connections_2):
     ])
 
 
-def find_best_cut_between_existing(polygon, candidate_vertices, cross_zs):
-    vertex_count = polygon.shape[1]
+def get_test_values(polygon, candidate_vertices):
     candidate_vertex_ideal_cut_unit_vector = find_ideal_cuts(polygon)[:, candidate_vertices]
-    concavity_degree_ranking = np.argsort(cross_zs[candidate_vertices])
     polygon_cut_vectors = polygon[:, np.newaxis, :] - polygon[:, candidate_vertices, np.newaxis]
     polygon_cut_distances = np.linalg.norm(polygon_cut_vectors, axis=0, keepdims=True)
     polygon_cut_distances[0, np.arange(candidate_vertices.shape[0]), candidate_vertices] = None
@@ -140,7 +138,13 @@ def find_best_cut_between_existing(polygon, candidate_vertices, cross_zs):
         ),
         axis=0
     )
-    polygon_test_values = np.multiply(polygon_cut_distances[0], (1 - polygon_cut_dots))
+    return np.multiply(polygon_cut_distances[0], (1 - polygon_cut_dots))
+
+
+def find_best_cut_between_existing(polygon, candidate_vertices, cross_zs):
+    vertex_count = polygon.shape[1]
+    concavity_degree_ranking = np.argsort(cross_zs[candidate_vertices])
+    polygon_test_values = get_test_values(polygon, candidate_vertices)
     is_concave = np.zeros([vertex_count])
     is_concave[candidate_vertices] = True
     candidate_to_noncandidate_ranking = rank_candidate_to_other_cuts(
@@ -152,6 +156,21 @@ def find_best_cut_between_existing(polygon, candidate_vertices, cross_zs):
 
     if candidate_vertices.shape[0] == 1 or (candidate_vertices.shape[0] == 2 and max(candidate_vertices) - min(candidate_vertices) == 1):
         connections_1 = candidate_to_noncandidate_ranking
+    elif (polygon.shape[1] % 2) == 0 and polygon.shape[1] / 2 == candidate_vertices.shape[0]:
+        candidate_to_candidate_ranking_1 = rank_candidate_cuts(
+            polygon_test_values, candidate_vertices, concavity_degree_ranking
+        )
+        alternate_candidate_vertex_map = np.ones(polygon.shape[1], dtype=bool)
+        alternate_candidate_vertex_map[candidate_vertices] = False
+        alternate_candidate_vertices = np.flatnonzero(alternate_candidate_vertex_map)
+        alternate_concavity_degree_ranking = np.argsort(cross_zs[alternate_candidate_vertices])
+        alternate_test_values = get_test_values(polygon, alternate_candidate_vertices)
+        candidate_to_candidate_ranking_2 = rank_candidate_cuts(
+            alternate_test_values, alternate_candidate_vertices, alternate_concavity_degree_ranking
+        )
+        connections_1 = np.concat([
+            candidate_to_candidate_ranking_1, candidate_to_candidate_ranking_2, candidate_to_noncandidate_ranking
+        ], axis=0)
     else:
         candidate_to_candidate_ranking = rank_candidate_cuts(polygon_test_values, candidate_vertices, concavity_degree_ranking)
         connections_1 = np.concat([candidate_to_candidate_ranking, candidate_to_noncandidate_ranking], axis=0)
@@ -174,7 +193,7 @@ def subdivide_edge(polygon, edge):
 def find_best_cut_to_edge(polygon, edge, candidate_vertices):
     vertex_count = polygon.shape[1]
     edge_vector = polygon[:, (edge + 1) % polygon.shape[1]] - polygon[:, edge]
-    edge_unit_vector = edge_vector / np.linalg.norm(edge_vector)
+    edge_unit_vector: NDArray = edge_vector / np.linalg.norm(edge_vector)
     edge_cut_point = subdivide_edge(polygon, edge)
     polygon_cut_vectors = polygon[:, candidate_vertices] - edge_cut_point[:, np.newaxis]
     polygon_cut_distances = np.linalg.norm(polygon_cut_vectors, axis=0, keepdims=True)
@@ -220,22 +239,39 @@ def find_best_cut_to_edge(polygon, edge, candidate_vertices):
         return None, None
 
 
-def choose_cut(polygon, edge_subdivide_ratio, candidate_vertices, cross_zs):
+def choose_cut(polygon, edge_subdivide_ratio, cross_zs):
     cut = None
     edge_cut_data = None
-    if polygon.shape[1] % 2 == 1:
-        edges = np.roll(polygon, -1, axis=1) - polygon
-        edge_lengths = np.linalg.norm(edges, axis=0)
-        min_length = min(edge_lengths)
-        max_length = max(edge_lengths)
-        if max_length / min_length > edge_subdivide_ratio:
-            edge = np.argmax(edge_lengths)
-            subdivided_polygon, cut = find_best_cut_to_edge(polygon, edge, candidate_vertices)
-            if subdivided_polygon is not None:
-                original_edge = np.stack([polygon[:, edge], polygon[:, (edge + 1) % polygon.shape[1]]], axis=1)
-                edge_cut_data = (subdivided_polygon, original_edge)
+    ups = np.greater(cross_zs, 0)
+    downs = np.logical_not(ups)
+    num_ups = np.sum(ups)
+    num_downs = np.sum(downs)
+    if num_ups > num_downs:
+        concave_ids = np.flatnonzero(downs)
+        adjusted_zs = cross_zs
+    elif num_ups == num_downs and np.sum(cross_zs[ups]) > -1 * np.sum(cross_zs[downs]):
+        concave_ids = np.flatnonzero(downs)
+        adjusted_zs = cross_zs
+    else:
+        concave_ids = np.flatnonzero(ups)
+        adjusted_zs = -1 * cross_zs
+    # if polygon.shape[1] % 2 == 1:
+    edges = np.roll(polygon, -1, axis=1) - polygon
+    edge_lengths = np.linalg.norm(edges, axis=0)
+    min_length = min(edge_lengths)
+    max_length = max(edge_lengths)
+    if max_length / min_length > edge_subdivide_ratio:
+        edge = np.argmax(edge_lengths)
+        if cross_zs[edge] * cross_zs[(edge + 1) % polygon.shape[1]] > 0:
+            candidate_vertices = np.flatnonzero(np.less_equal(cross_zs * cross_zs[edge], 0))
+        else:
+            candidate_vertices = concave_ids
+        subdivided_polygon, cut = find_best_cut_to_edge(polygon, edge, candidate_vertices)
+        if subdivided_polygon is not None:
+            original_edge = np.stack([polygon[:, edge], polygon[:, (edge + 1) % polygon.shape[1]]], axis=1)
+            edge_cut_data = (subdivided_polygon, original_edge)
     if cut is None:
-        cut = find_best_cut_between_existing(polygon, candidate_vertices, cross_zs)
+        cut = find_best_cut_between_existing(polygon, concave_ids, adjusted_zs)
     return cut, edge_cut_data
 
 
@@ -292,22 +328,12 @@ def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
             cut_results.append(polygon)
             cut_results_region.append(polygon_region)
         else:
-            num_ups = np.sum(ups)
-            num_downs = np.sum(downs)
-            if num_ups > num_downs:
-                concave_ids = np.flatnonzero(downs)
-                adjusted_zs = region_corner_zs
-            elif num_ups == num_downs and np.sum(region_corner_zs[ups]) > -1 * np.sum(region_corner_zs[downs]):
-                concave_ids = np.flatnonzero(downs)
-                adjusted_zs = region_corner_zs
-            else:
-                concave_ids = np.flatnonzero(ups)
-                adjusted_zs = -1 * region_corner_zs
-            cut, edge_cut_data = choose_cut(polygon, edge_subdivide_ratio, concave_ids, adjusted_zs)
+            cut, edge_cut_data = choose_cut(polygon, edge_subdivide_ratio, region_corner_zs)
             make_cut(polygon, cut, edge_cut_data, remaining_list, cut_results, remaining_list_region, polygon_region)
-        # if cut_iteration > 69:
-        #     test_rasterization.append(([549, 1131], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1)))
-        #     test_region([549, 1131], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1))
+        # if cut_iteration % 2 == 0 and cut_iteration > 335:
+        # if cut_iteration > 332:
+        #     test_rasterization.append(([2000, 3000], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1)))
+        #     test_region([2000, 3000], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1))
         cut_iteration += 1
     new_region_polygon_lists = [[]] * len(non_transparent_regions)
     for polygon, region_id in zip(cut_results, cut_results_region):

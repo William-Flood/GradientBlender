@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools >= 77.0.3", "wheel", "numpy", "pathlib"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GradientEngine"
+version = "0.0.1"
+dependencies = [
+"numpy",
+    "contourpy",
+    "cycler",
+    "fonttools",
+    "imageio",
+    "kiwisolver",
+    "lazy-loader",
+    "matplotlib",
+    "networkx",
+    "packaging",
+    "pillow",
+    "pyparsing",
+    "python-dateutil",
+    "scikit-image",
+    "scipy",
+    "six",
+    "tifffile"
+]

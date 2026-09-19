@@ -5,8 +5,9 @@ from util.inspection_utils import test_region
 from matplotlib import path
 from polygon.polygon_ideal_cuts import find_ideal_cuts
 from polygon.cut_polygon import cut_polygon
-from polygon.mesh import find_polygons_on_edge
+from polygon.mesh import Mesh
 from util.rasterize import rasterize_line, rasterize_polygon
+from time import time
 
 
 def get_corner_zs(polygon):
@@ -282,32 +283,53 @@ def make_cut(
         remaining_list,
         result_list,
         remaining_list_region,
-        polygon_region
+        polygon_region,
+        mesh: Mesh,
+        mesh_ids_wrapper
 ):
+    mesh_ids = mesh_ids_wrapper[0]
+    assert mesh.polygon_ids.size == mesh_ids.size
+    polygon_mesh_id = mesh.find_polygon_by_points(polygon)
+    mesh.remove_polygon(polygon_mesh_id)
+    mesh_ids = mesh_ids[np.not_equal(mesh_ids, polygon_mesh_id)]
     if edge_cut_data is None:
         cut_results = cut_polygon(polygon, cut)
+        new_mesh_id_location = len(remaining_list)
         remaining_list.extend(cut_results)
         remaining_list_region.extend([polygon_region] * len(cut_results))
     else:
-        polygon_indices, edge_indices = find_polygons_on_edge(
-            remaining_list + result_list,
-            edge_cut_data[1]
-        )
-        for polygon_index, edge_index in zip(polygon_indices, edge_indices):
-            if len(remaining_list) > polygon_index:
-                polygon_to_subdivide = remaining_list[polygon_index]
+        bordering_polygon_mesh_id, edge_index = mesh.find_polygon_by_edge(edge_cut_data[1])
+        if bordering_polygon_mesh_id >= 0:
+            bordering_polygon_index = np.argmax(np.equal(mesh_ids, bordering_polygon_mesh_id))
+            if len(remaining_list) > bordering_polygon_index:
+                polygon_to_subdivide = remaining_list[bordering_polygon_index]
                 subdivision_point = subdivide_edge(polygon_to_subdivide, edge_index)
                 new_polygon = np.insert(polygon_to_subdivide, edge_index + 1, subdivision_point, axis=1)
-                remaining_list[polygon_index] = new_polygon
+                remaining_list[bordering_polygon_index] = new_polygon
             else:
-                polygon_to_subdivide = result_list[polygon_index - len(remaining_list)]
+                polygon_to_subdivide = result_list[bordering_polygon_index - len(remaining_list)]
                 subdivision_point = subdivide_edge(polygon_to_subdivide, edge_index)
                 new_polygon = np.insert(polygon_to_subdivide, edge_index + 1, subdivision_point, axis=1)
-                result_list[polygon_index - len(remaining_list)] = new_polygon
+                result_list[bordering_polygon_index - len(remaining_list)] = new_polygon
             assert np.all(np.equal(subdivision_point, np.average(edge_cut_data[1], axis=1).astype(np.int32)))
+            mesh.remove_polygon(bordering_polygon_mesh_id)
+            mesh_ids[bordering_polygon_index] = mesh.add_polygon(new_polygon)
+        new_mesh_id_location = len(remaining_list)
         cut_results = cut_polygon(edge_cut_data[0], cut)
         remaining_list.extend(cut_results)
         remaining_list_region.extend([polygon_region] * len(cut_results))
+    new_ids = [mesh.add_polygon(new_polygon) for new_polygon in cut_results]
+    mesh_ids = np.insert(
+        mesh_ids,
+        new_mesh_id_location,
+        new_ids
+    )
+    mesh_ids_wrapper[0] = mesh_ids
+    # check_ids = [mesh.find_polygon_by_points(check_polygon) for check_polygon in (remaining_list + result_list)]
+    # assert len(check_ids) == mesh_ids.size
+    # for check_id, mesh_id in zip(check_ids, mesh_ids):
+    #     assert check_id == mesh_id
+    # assert mesh.polygon_ids.size == mesh_ids.size
 
 
 def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
@@ -318,7 +340,11 @@ def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
     cut_results_region = []
     cut_iteration = 0
     test_rasterization = []
+    timings = []
+    polygon_mesh = Mesh(remaining_list)
+    mesh_ids_wrapped = [np.arange(len(remaining_list))]
     while len(remaining_list) > 0:
+        cut_start = time()
         polygon = remaining_list.pop()
         polygon_region = remaining_list_region.pop()
         region_corner_zs = get_corner_zs(polygon)
@@ -327,14 +353,33 @@ def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
         if ups.all() or downs.all():
             cut_results.append(polygon)
             cut_results_region.append(polygon_region)
+            mesh_ids = mesh_ids_wrapped[0]
+            polygon_id = mesh_ids[len(remaining_list)]
+            mesh_ids_wrapped = [
+                np.append(
+                    mesh_ids[np.not_equal(mesh_ids, polygon_id)],
+                    [polygon_id]
+                )
+            ]
         else:
             cut, edge_cut_data = choose_cut(polygon, edge_subdivide_ratio, region_corner_zs)
-            make_cut(polygon, cut, edge_cut_data, remaining_list, cut_results, remaining_list_region, polygon_region)
+            make_cut(
+                polygon,
+                cut,
+                edge_cut_data,
+                remaining_list,
+                cut_results,
+                remaining_list_region,
+                polygon_region,
+                polygon_mesh,
+                mesh_ids_wrapped
+            )
         # if cut_iteration % 2 == 0 and cut_iteration > 335:
         # if cut_iteration > 332:
         #     test_rasterization.append(([2000, 3000], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1)))
         #     test_region([2000, 3000], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1))
         cut_iteration += 1
+        timings.append(time() - cut_start)
     new_region_polygon_lists = [[]] * len(non_transparent_regions)
     for polygon, region_id in zip(cut_results, cut_results_region):
         new_region_polygon_lists[region_id].append(polygon)

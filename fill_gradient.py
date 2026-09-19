@@ -283,12 +283,13 @@ def make_border_loops(
         regions_array[*region.points] = region.id
         region_dict[region.id] = region
     # regions_csv = matrix_to_csv(regions_array)
+    print("Detecting border pixels")
     regions_borders_raw = detect_drawn_border(regions_array, values_array)
     regions_borders: Dict[int, Dict[int, Region]] = dict()
     total_borders = []
     # connection_filter = ConnectionFilter()
+    print("Creating border curves")
     for region_id, border_map in regions_borders_raw.items():
-        print(f"Creating borders for region {region_id}")
         region_border = dict()
         regions_borders[region_id] = region_border
         for bordering_region_id, border_points in border_map.items():
@@ -338,6 +339,7 @@ def make_border_loops(
 
 
 def normalize_polygons(regions, edge_subdivide_ratio):
+    print("Normalizing polygons")
     cut_concave_regions(regions, edge_subdivide_ratio)
     cut_out_quads(regions)
 
@@ -359,6 +361,7 @@ def subdivided_border_tangent_interpolation_fill(
     guide_image_array = np.array(guide_image)
     guide_image_shape = guide_image_array.shape[:2]
     color_map = color_mapper(guide_image_array, region_proportion_threshold)
+    print("Normalizing values array")
     values_array = np.full(guide_image_shape, -1.0)
     for value, points in color_map.items():
         points_array = np.array(points)
@@ -371,6 +374,7 @@ def subdivided_border_tangent_interpolation_fill(
         guide_image_shape,
         values_array,
         border_defuzz_threshold)
+    draw_polygons([region for region in regions if not region.is_void], guide_image_shape)
     normalize_polygons(regions, edge_subdivide_ratio)
     # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
     draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

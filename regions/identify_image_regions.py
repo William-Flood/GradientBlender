@@ -31,9 +31,7 @@ def remove_holes(region_points, values_array, sideways_cut_penalty):
         if values_array[*points[:, 0]] == -1:
             yield points
         else:
-            print(f"Checking for holes in {test_i}")
             if check_inner_loops(points, values_array.shape):
-                print(f"Splitting {test_i}")
                 split_point_set = split_region(points, values_array.shape, sideways_cut_penalty)
                 if len(split_point_set) > 1:
                     for point_set in split_point_set:

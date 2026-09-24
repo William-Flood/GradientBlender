@@ -13,6 +13,7 @@ class Border:
         self.region_one = region_one
         self.region_two = region_two
         self.connecting_borders = [[],[]]
+        self.traversal_failures = None
     decomposed_points: NDArray[np.int32]
     is_loop: bool
 
@@ -125,4 +126,3 @@ class Border:
         self.decomposed_points[:, 0] = (self.decomposed_points[:, 0] + self.decomposed_points[:, -1]) // 2
         if self.decomposed_points.shape[1] > 1:
             self.decomposed_points = self.decomposed_points[:, :-1]
-

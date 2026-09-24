@@ -13,7 +13,8 @@ def draw_borders(borders: List[Border], image_shape):
     border_array = np.ones(image_shape, dtype=bool)
     for border in borders:
         # draw_border(border, border_drawer)
-        border_array[*border.rasterize()] = False
+        # border_array[*border.rasterize()] = False
+        border_array[*border.full_points] = False
     border_image = Image.fromarray(border_array.astype(np.uint8) * 255)
     border_image.show()
 
@@ -27,4 +28,15 @@ def draw_region_borders(regions: list[Region], image_shape):
     border_image = Image.fromarray(border_array.astype(np.uint8) * 255)
     border_image.show()
 
+def draw_validation_failures(
+    borders: List[Border],
+    image_shape,
+    validation_highlight_file_name="validation_failures.png"
+):
+    border_array = np.zeros([*image_shape, 4], dtype=np.uint8)
+    borders_with_failure = [failed_border for failed_border in borders if failed_border.traversal_failures is not None]
+    for border in borders_with_failure:
+        border_array[*border.traversal_failures] = [255, 0, 0, 255]
+    border_image = Image.fromarray(border_array)
+    border_image.save(validation_highlight_file_name)
 

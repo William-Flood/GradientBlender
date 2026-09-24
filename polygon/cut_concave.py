@@ -1,3 +1,5 @@
+import math
+
 from regions.region import Region
 import numpy as np
 from numpy.typing import NDArray
@@ -20,7 +22,7 @@ def get_corner_zs(polygon):
     )[:, 2]
 
 
-def check_cut_inside_polygon(polygon, cuts, force_fit):
+def check_cut_inside_polygon(polygon, cuts, is_cut_nonintersecting, force_fit):
     """
     Checks which of a series of cuts, if any, is bounded within the given polygon.  Note: this function only checks the
     midpoint of the cuts, and is intended to be used in combination with check_cut_nonintersecting to ensure that the
@@ -38,7 +40,7 @@ def check_cut_inside_polygon(polygon, cuts, force_fit):
     cut_middles = np.average(polygon[:, cuts], axis=2)
     is_inside_polygon = polygon_path.contains_points(cut_middles.T)
     radius = 1
-    while not is_inside_polygon.any() and force_fit:
+    while not (is_inside_polygon & is_cut_nonintersecting).any() and force_fit:
         is_inside_polygon = polygon_path.contains_points(cut_middles.T, radius=radius)
         radius += 1
     return is_inside_polygon
@@ -75,18 +77,39 @@ def check_cut_nonintersecting(polygon, cuts):
     )
     intersection_in_cut = np.greater(t, 0) & np.less(t, 1)
     intersection_in_edge = np.greater(u, 0) & np.less(u, 1)
+    lines_intersect = intersection_in_cut & intersection_in_edge
     are_nonintersecting_cuts = np.logical_not(
         np.any(
-            intersection_in_cut & intersection_in_edge,
+            lines_intersect,
             axis=1
         )
     )
-    return are_nonintersecting_cuts
+
+    if are_nonintersecting_cuts.any():
+        return are_nonintersecting_cuts
+
+    cut_vectors = np.stack([y1, x1], axis=0) - np.stack([y2, x2], axis=0)
+    edge_vectors = polygon - np.roll(polygon, 1, axis=1)
+    cut_unit_vectors = cut_vectors / np.linalg.norm(cut_vectors, axis=0, keepdims=True)
+    edge_unit_vectors = edge_vectors / np.linalg.norm(edge_vectors, axis=0, keepdims=True)
+    cut_and_edge_dots = np.sum(np.multiply(
+        cut_unit_vectors, edge_unit_vectors[:, np.newaxis, :]
+    ))
+    EPSILON = math.cos(math.pi / 128)
+    lines_are_parallel = np.greater(np.abs(cut_and_edge_dots), EPSILON)
+    are_nonintersecting_or_parallel_cuts = np.logical_not(
+        np.any(
+            lines_intersect & np.logical_not(lines_are_parallel),
+            axis=1
+        )
+    )
+
+    return are_nonintersecting_or_parallel_cuts
 
 
 def check_cut(polygon, cuts, force_fit):
     is_cut_nonintersecting = check_cut_nonintersecting(polygon, cuts)
-    is_inside = check_cut_inside_polygon(polygon, cuts, force_fit)
+    is_inside = check_cut_inside_polygon(polygon, cuts, is_cut_nonintersecting, force_fit)
     are_valid_cuts = is_cut_nonintersecting & is_inside
     return are_valid_cuts
 
@@ -225,8 +248,9 @@ def find_best_cut_to_edge(polygon, edge, candidate_vertices):
         constant_values=edge_subdivide_vertex
     )
     vertex_index_distance = np.abs(connection_list_1[:, 0] - connection_list_1[:, 1])
+    edge_subdivided_vertex_count = vertex_count + 1
     connection_list_2 = connection_list_1[np.logical_not(
-        np.isin(vertex_index_distance, [0, 1, vertex_count - 1])
+        np.isin(vertex_index_distance, [0, 1, edge_subdivided_vertex_count - 1])
     )]
     if connection_list_2.shape[0] > 0:
         connection_list_3 = rank_evenness_preserving_cuts(connection_list_2)

@@ -125,6 +125,15 @@ def subdivided_border_main():
     )
 
     parser.add_argument(
+        "-border_traversal_failure_tolerance",
+        type=int,
+        default=5,
+        help=(
+            "The maximum number of pixels that can be left out of an ordering before treating it as a validation error"
+        )
+    )
+
+    parser.add_argument(
         "-region_proportion_threshold",
         type=float,
         default=0.01,
@@ -160,6 +169,13 @@ def subdivided_border_main():
     )
 
     parser.add_argument(
+        "-validation_highlight_file_name",
+        type=str,
+        default="validation_failures.png",
+        help="The name of an image file to save validation errors to"
+    )
+
+    parser.add_argument(
         "-profile",
         action="store_true"
     )
@@ -182,10 +198,12 @@ def subdivided_border_main():
                 region_defuzz_threshold=args.region_defuzz_threshold,
                 sideways_cut_penalty=args.sideways_cut_penalty,
                 border_defuzz_threshold=args.border_defuzz_threshold,
+                border_traversal_failure_tolerance=args.border_traversal_failure_tolerance,
                 region_proportion_threshold=args.region_proportion_threshold,
                 decimate_deviation_cutoff=args.decimate_deviation_cutoff,
                 edge_subdivide_ratio=args.edge_subdivide_ratio,
-                config_file_name=args.system_config_file
+                config_file_name=args.system_config_file,
+                validation_highlight_file_name=args.validation_highlight_file_name
             )
             pr.disable()
             s = io.StringIO()
@@ -200,10 +218,12 @@ def subdivided_border_main():
             result_image_file=result_image_file,
             region_defuzz_threshold=args.region_defuzz_threshold,
             border_defuzz_threshold=args.border_defuzz_threshold,
+            border_traversal_failure_tolerance=args.border_traversal_failure_tolerance,
             region_proportion_threshold=args.region_proportion_threshold,
             decimate_deviation_cutoff=args.decimate_deviation_cutoff,
             edge_subdivide_ratio=args.edge_subdivide_ratio,
-            config_file_name=args.system_config_file
+            config_file_name=args.system_config_file,
+            validation_highlight_file_name=args.validation_highlight_file_name
         )
         print(f"Elapsed: {time.time() - start_time}")
 

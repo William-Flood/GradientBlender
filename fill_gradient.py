@@ -1,3 +1,5 @@
+import time
+
 from util.config import config_obj
 from color_mapper import color_mapper
 from borders.detector import detect_drawn_border
@@ -13,6 +15,8 @@ from borders.connection_filter import ConnectionFilter
 from util.inspection_utils_gui import visualize_array
 from polygon.cut_concave import cut_concave_regions
 from polygon.cut_out_quads import cut_out_quads
+from gradengrs import get_double_borders_dict
+from image.draw_borders import draw_region_borders, draw_borders, draw_validation_failures
 
 
 def get_interpolations(
@@ -275,16 +279,21 @@ def make_border_loops(
         regions: list[Region],
         decimate_deviation_cutoff,
         image_shape,
-        values_array,
-        border_defuzz_threshold):
+        border_defuzz_threshold,
+        border_traversal_failure_tolerance,
+        validation_highlight_file_name
+    ):
     regions_array = np.full(image_shape, -1)
+    values_array = np.full(image_shape, -1)
     region_dict = dict()
     for region in regions:
         regions_array[*region.points] = region.id
         region_dict[region.id] = region
+        values_array[*region.points] = region.value
     # regions_csv = matrix_to_csv(regions_array)
     print("Detecting border pixels")
-    regions_borders_raw = detect_drawn_border(regions_array, values_array)
+    # regions_borders_raw = detect_drawn_border(regions_array, values_array)
+    regions_borders_raw = get_double_borders_dict(regions_array.shape, regions_array, values_array.astype(np.int64))
     regions_borders: Dict[int, Dict[int, Region]] = dict()
     total_borders = []
     # connection_filter = ConnectionFilter()
@@ -299,43 +308,49 @@ def make_border_loops(
                 else:
                     bordering_region = region_dict[bordering_region_id]
                 split_borders = divide_borders(
-                    border_points,
+                    np.array(border_points).T,
                     region_dict[region_id],
                     bordering_region,
-                    regions_array
+                    regions_array,
+                    border_traversal_failure_tolerance
                 )
                 total_borders.extend(split_borders)
                 region_border[bordering_region_id] = split_borders
                 for border in split_borders:
                     region_dict[region_id].add_border(border)
-                    region_dict[bordering_region_id].add_border(border)
+                    if bordering_region_id != -1:
+                        region_dict[bordering_region_id].add_border(border)
     # visualize_point_list(
     #         np.unique(np.concat([
     #         border.full_points for border in total_borders
     #     ], axis=1), axis=1)
     # )
-    # connection_filter.save_remaining_samples()
-    print("Decimating borders")
-    for border in total_borders:
-        decimate(border, decimate_deviation_cutoff)
-    def inspect_regions():
-        border_array = np.ones(image_shape)
+    if all([border.traversal_failures is None for border in total_borders]):
+        print("Decimating borders")
         for border in total_borders:
-            border_array[*border.full_points] = 0
-        visualize_array(border_array, regions_array)
-    for region in region_dict.values():
-        if not region.is_void:
-            region.create_loops(border_defuzz_threshold)
-    loop_sorted_borders = (
-        [border for border in total_borders if not border.is_loop] +
-        [border for border in total_borders if border.is_loop]
-    )
-    for border in loop_sorted_borders:
-        border.cinch_endpoints()
-    for region in region_dict.values():
-        if not region.is_void:
-            region.form_initial_polygon()
-    # draw_borders(total_borders, image_shape)
+            decimate(border, decimate_deviation_cutoff)
+        def inspect_regions():
+            border_array = np.ones(image_shape)
+            for border in total_borders:
+                border_array[*border.full_points] = 0
+            visualize_array(border_array, regions_array)
+        for region in region_dict.values():
+            if not region.is_void:
+                region.create_loops(border_defuzz_threshold)
+        loop_sorted_borders = (
+            [border for border in total_borders if not border.is_loop] +
+            [border for border in total_borders if border.is_loop]
+        )
+        for border in loop_sorted_borders:
+            border.cinch_endpoints()
+        for region in region_dict.values():
+            if not region.is_void:
+                region.form_initial_polygon()
+    else:
+        print(f"Traversal failures detected: Aborting.  Saving validation failues to {validation_highlight_file_name}")
+        draw_validation_failures(total_borders, image_shape, validation_highlight_file_name)
+
+
 
 
 def normalize_polygons(regions, edge_subdivide_ratio):
@@ -351,10 +366,12 @@ def subdivided_border_tangent_interpolation_fill(
     region_defuzz_threshold=10,
     sideways_cut_penalty=100,
     border_defuzz_threshold=5,
+    border_traversal_failure_tolerance=5,
     region_proportion_threshold=0.01,
     decimate_deviation_cutoff=3,
     edge_subdivide_ratio=3,
-    config_file_name=""
+    config_file_name="",
+    validation_highlight_file_name="validation_failures.png"
 ):
     config_obj.load(config_file_name)
     guide_image = Image.open(guide_image_file)
@@ -366,15 +383,16 @@ def subdivided_border_tangent_interpolation_fill(
     for value, points in color_map.items():
         points_array = np.array(points)
         values_array[points_array[...,0], points_array[...,1]] = value
-    validate(values_array)
+    validate(values_array, validation_highlight_file_name)
     regions = identify_image_regions(values_array, region_defuzz_threshold, sideways_cut_penalty)
     make_border_loops(
         regions,
         decimate_deviation_cutoff,
         guide_image_shape,
-        values_array,
-        border_defuzz_threshold)
-    draw_polygons([region for region in regions if not region.is_void], guide_image_shape)
+        border_defuzz_threshold,
+        border_traversal_failure_tolerance,
+        validation_highlight_file_name
+    )
     normalize_polygons(regions, edge_subdivide_ratio)
-    # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
+    draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
     draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

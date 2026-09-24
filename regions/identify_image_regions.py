@@ -5,33 +5,25 @@ from regions.identify_regions_floodfill import identify_regions
 from scipy.sparse import coo_array
 from numpy.typing import NDArray
 from regions.region import Region
+from gradengrs import get_borders_dict
+import time
 
 
-def check_inner_loops(region_points, image_shape):
-    region_map = coo_array(([True] * region_points.shape[1], region_points), shape=image_shape).toarray()
-    outside_points = np.array(np.nonzero(np.logical_not(region_map)))
-    filtered_outside_points = outside_points[
-        :,
-        np.all(
-            np.greater_equal(outside_points, np.min(region_points, axis=1, keepdims=True) - 1) &
-            np.less_equal(outside_points, np.max(region_points, axis=1, keepdims=True) + 1),
-            axis=0
-        )
-    ]
-    border_matrix = coo_array(
-        ([True] * filtered_outside_points.shape[1], filtered_outside_points),
-        shape=image_shape).toarray()
-    border_regions = identify_regions(border_matrix, border_matrix)
-    return len(border_regions) > 1
+def check_inner_loops(image_shape, region_border_points):
+    borders_map = np.zeros(image_shape, dtype=bool)
+    borders_map[*np.array(region_border_points).T] = True
+    border_loops = identify_regions(borders_map, borders_map)
+    return len(border_loops) > 1
 
 
 def remove_holes(region_points, values_array, sideways_cut_penalty):
     test_i = 0
-    for points in region_points:
+    region_border_points = get_borders_dict(values_array.shape, region_points)
+    for point_id, points in enumerate(region_points):
         if values_array[*points[:, 0]] == -1:
             yield points
         else:
-            if check_inner_loops(points, values_array.shape):
+            if check_inner_loops(values_array.shape, region_border_points[point_id]):
                 split_point_set = split_region(points, values_array.shape, sideways_cut_penalty)
                 if len(split_point_set) > 1:
                     for point_set in split_point_set:

@@ -9,3 +9,5 @@ config.json
 /GradientEngine.egg-info/
 /build/
 /RModule/target/
+/RModule/Cargo.lock
+/target/

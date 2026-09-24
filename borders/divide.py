@@ -45,10 +45,11 @@ def get_border_connections(
 
 
 def divide_borders(
-        border_points,
-        region_one: Region,
-        region_two: Region,
-        region_map
+    border_points,
+    region_one: Region,
+    region_two: Region,
+    region_map,
+    border_traversal_failure_tolerance
 ) -> List[Border]:
     border_connections = get_border_connections(
             border_points,
@@ -71,9 +72,23 @@ def divide_borders(
             np.ascontiguousarray(border_segment).astype(np.int32),
             np.ascontiguousarray(region_map).astype(np.int32)
         ).T
-        border = Border(segment_ordered, region_one, region_two)
-        segment_end_diffs = segment_ordered[:, 0] - segment_ordered[:, -1]
+        is_pixel_filled = np.all(np.greater(segment_ordered, -1), axis=0)
+        segment_ordered_filtered = segment_ordered[
+            :,
+            is_pixel_filled
+        ]
+        border = Border(segment_ordered_filtered, region_one, region_two)
+        segment_end_diffs = segment_ordered_filtered[:, 0] - segment_ordered_filtered[:, -1]
         border.is_loop = np.isin(segment_end_diffs, [-1, 0, 1]).all()
+        if np.sum(np.logical_not(is_pixel_filled)) > border_traversal_failure_tolerance:
+            omitted_map = np.zeros(region_map.shape, dtype=bool)
+            omitted_map[*border_segment] = True
+            omitted_map[*segment_ordered_filtered] = False
+            border.traversal_failures = np.array(
+                np.nonzero(
+                    omitted_map
+                )
+            )
         # border_segment_filtered = np.unique(border_segment, axis=1)
         # if border_segment_filtered.shape[1] > 2:
         #     point_is_segment = np.equal(labels, split)

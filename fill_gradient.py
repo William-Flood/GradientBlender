@@ -17,6 +17,7 @@ from polygon.cut_concave import cut_concave_regions
 from polygon.cut_out_quads import cut_out_quads
 from gradengrs import get_double_borders_dict
 from image.draw_borders import draw_region_borders, draw_borders, draw_validation_failures
+from util.rasterize import *
 
 
 def get_interpolations(
@@ -394,5 +395,5 @@ def subdivided_border_tangent_interpolation_fill(
         validation_highlight_file_name
     )
     normalize_polygons(regions, edge_subdivide_ratio)
-    draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
+    # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
     draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

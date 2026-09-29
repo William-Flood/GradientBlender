@@ -112,14 +112,8 @@ int findIndexIn(
     // Finds the location of the specified coordinates within a sorted array of points
     npy_intp lowerBound = 0;
     npy_intp upperBound = pointCount - 1;
-    // printf("Seeking %i %i\n", y, x);
     while (lowerBound <= (upperBound)) {
         npy_intp midpoint = (lowerBound + upperBound) / 2;
-        // // printf("Range %i -> %i <- %i\n", lowerBound, midpoint, upperBound);
-        // // printf("Range %i %i -> %i %i <- %i %i\n", 
-        //     pointList[lowerBound * 2], pointList[lowerBound * 2 + 1], 
-        //     pointList[midpoint * 2], pointList[midpoint * 2 + 1], 
-        //     pointList[upperBound * 2], pointList[upperBound * 2 + 1]);
         if (pointList[midpoint * 2] ==y && pointList[midpoint * 2 + 1] ==x) {
             return midpoint;
         }

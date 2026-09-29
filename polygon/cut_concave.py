@@ -1,4 +1,5 @@
 import math
+from collections import defaultdict
 
 from regions.region import Region
 import numpy as np
@@ -359,7 +360,7 @@ def make_cut(
 def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
     non_transparent_regions = [region for region in regions if region.value != -1]
     remaining_list = [polygon for region in non_transparent_regions for polygon in region.polygons]
-    remaining_list_region = [region_id for region_id, region in enumerate(non_transparent_regions) for _ in region.polygons]
+    remaining_list_region = [region.id for region in non_transparent_regions for _ in region.polygons]
     cut_results = []
     cut_results_region = []
     cut_iteration = 0
@@ -404,8 +405,8 @@ def cut_concave_regions(regions: list[Region], edge_subdivide_ratio):
         #     test_region([2000, 3000], np.concat([rasterize_polygon(polygon) for polygon in remaining_list + cut_results], axis=1))
         cut_iteration += 1
         timings.append(time() - cut_start)
-    new_region_polygon_lists = [[]] * len(non_transparent_regions)
+    new_region_polygon_matcher = defaultdict(list)
     for polygon, region_id in zip(cut_results, cut_results_region):
-        new_region_polygon_lists[region_id].append(polygon)
-    for region, polygon_list in zip(non_transparent_regions, new_region_polygon_lists):
-        region.polygons = polygon_list
+        new_region_polygon_matcher[region_id].append(polygon)
+    for region in non_transparent_regions:
+        region.polygons = new_region_polygon_matcher[region.id]

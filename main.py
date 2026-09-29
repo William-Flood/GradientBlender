@@ -7,8 +7,10 @@ import cProfile
 import pstats
 import io
 import gradengc
+import gradengrs
 import numpy as np
 from util.inspection_utils import *
+import os
 
 
 def build_default_output_filename(input_filename):
@@ -228,17 +230,6 @@ def subdivided_border_main():
         print(f"Elapsed: {time.time() - start_time}")
 
 
-def testfoo():
-    rng = np.random.default_rng(4451)
-
-    # a = np.array([[7, 2, 6, 6],[4, 2, 5, 4]], dtype=np.int32)
-    a = rng.integers(5, 150, [2, 500]).astype(np.int32)
-    start_time = time.time()
-    res = gradengc.foo([a])
-    print(f"Elapsed: {time.time() - start_time}")
-    return res
-
-
 def test_point_orderer():
     circle_indices = np.indices([210, 210])
     flat_indices = np.reshape(circle_indices, [2, -1])
@@ -264,6 +255,18 @@ def test_point_orderer():
     show_matrix_levels(walk_check)
     return walk_filtered
 
+def test_list():
+    os.environ['RUST_BACKTRACE'] = '1'
+    rng = np.random.default_rng()
+    initial_pairing = np.zeros([150, 2], dtype=np.int32)
+    for i in range(50):
+        initial_pairing[i * 3] = [2 * i, 0]
+        initial_pairing[i * 3 + 1] = [2 * i, 1]
+        initial_pairing[i * 3 + 2] = [2 * i + 1, 0]
+    random_pairing = np.copy(initial_pairing)
+    rng.shuffle(random_pairing, axis=0)
+    resorted = gradengrs.test_tree(random_pairing.flatten())
+    assert np.equal(initial_pairing.flatten(), resorted).all()
 
 
 if __name__ == "__main__":

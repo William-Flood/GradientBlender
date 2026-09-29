@@ -83,8 +83,10 @@ def identify_image_regions(values_array, defuzz_threshold, sideways_cut_penalty)
          ), shape=values_array.shape
     ).toarray())
     split_region_points = []
+    rh_start = time.time()
     for points in remove_holes(defuzzed_regions_points, values_array, sideways_cut_penalty):
         split_region_points.append(points)
+    rh_time = time.time() - rh_start
     return [
                 Region(get_value_mode(values_array, points), region_index, points)
                 for region_index, points in enumerate(split_region_points)

@@ -3,18 +3,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3::types::PyDict;
-use numpy::{PyArray, Ix2, PyArrayMethods, PyUntypedArrayMethods, PyReadonlyArray2};
+use numpy::{PyArray, Ix2, PyArrayMethods, PyUntypedArrayMethods};
+use crate::numpy_utils;
 
-fn numpy_to_vec(arr: &PyReadonlyArray2<'_, i64>) -> Vec<i64> {
-
-    let data_and_size = arr
-        .as_array()
-        .as_standard_layout()
-        .into_owned()
-        .into_raw_vec_and_offset();
-
-    data_and_size.0
-}
 
 fn fill_point_neighbor(
     region_grid: &Vec<i32>, 
@@ -61,7 +52,7 @@ fn fill_region_grid<'py>(image_size: &Vec<usize>, region_points: Bound<'py, PyLi
       .expect("Unable to cast region point array").readonly();
       let point_count = *region_array.shape().get(1).ok_or("No point count!").
         map_err(|e| PyValueError::new_err(e.to_string()))?;
-      let region_vect = numpy_to_vec(&region_array);
+      let region_vect = numpy_utils::numpy_to_vec(&region_array);
       for point_index in 0..point_count {
         let point_y = region_vect[point_index];
         let point_x = region_vect[point_index + point_count];
@@ -191,8 +182,8 @@ pub fn get_double_border_dict<'py>(
     point_values: Bound<'py, PyArray<i64, Ix2>>
   ) -> PyResult<Bound<'py, PyDict>> {
     let result_dict = PyDict::new(py);
-    let region_grid = numpy_to_vec(&region_map.readonly());
-    let values_grid = numpy_to_vec(&point_values.readonly());
+    let region_grid = numpy_utils::numpy_to_vec(&region_map.readonly());
+    let values_grid = numpy_utils::numpy_to_vec(&point_values.readonly());
     for region_y in 0..image_size[0] {
       for region_x in 0..image_size[1] {
         fill_double_point_neighbors(

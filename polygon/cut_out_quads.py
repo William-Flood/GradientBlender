@@ -4,8 +4,7 @@ from polygon.polygon_ideal_cuts import find_ideal_cuts
 from polygon.cut_polygon import cut_polygon
 from gradengrs import cut_out_trianges
 from collections import defaultdict
-
-from gradengrs import smooth_polygons
+from polygon.smooth import smooth_region_polygons
 
 
 def cut_quad_from_polygon(polygon):
@@ -34,15 +33,6 @@ def cut_down_to_quads(regions: list[Region]):
                 polygon_stack.append(remainder)
         region.polygons = new_polygons
 
-
-def smooth_region_polygons(regions: list[Region], mesh_smooth_convergence_ratio):
-    for region in regions:
-        region_polygons = []
-        for polygon in region.polygons:
-            if polygon.shape[1] > 2 and np.equal(np.unique(polygon, axis=1, return_counts=True)[1], 1).all():
-                region_polygons.append(polygon)
-        smooth_results = smooth_polygons(region_polygons, mesh_smooth_convergence_ratio)
-        region.polygons = [result.points for result in smooth_results]
 
 
 def cut_up_to_quads(regions: list[Region]):

@@ -18,6 +18,7 @@ from polygon.cut_out_quads import cut_out_quads
 from gradengrs import get_double_borders_dict
 from image.draw_borders import draw_region_borders, draw_borders, draw_validation_failures
 from util.rasterize import *
+from polygon.subdivide_polygons import subdivide
 
 
 def get_interpolations(
@@ -373,6 +374,7 @@ def subdivided_border_tangent_interpolation_fill(
     edge_subdivide_ratio=3,
     config_file_name="",
     mesh_smooth_convergence_ratio=.05,
+    polygon_subdivisions=2,
     validation_highlight_file_name="validation_failures.png"
 ):
     config_obj.load(config_file_name)
@@ -397,4 +399,5 @@ def subdivided_border_tangent_interpolation_fill(
     )
     normalize_polygons(regions, edge_subdivide_ratio, mesh_smooth_convergence_ratio)
     # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
+    subdivide(regions, polygon_subdivisions, mesh_smooth_convergence_ratio)
     draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

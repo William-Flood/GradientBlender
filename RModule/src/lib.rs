@@ -7,6 +7,7 @@ mod double_key_tree;
 mod numpy_utils;
 mod mesh;
 mod find_index_in;
+mod smooth_polys;
 mod triangle_cutter_python_interface;
 #[pyo3::pymodule]
 mod gradengrs {
@@ -18,6 +19,7 @@ mod gradengrs {
   use crate::triangle_cutter;
   #[pymodule_export]
   use crate::triangle_cutter_python_interface::PolygonResult;
+  use crate::smooth_polys;
 
   #[pyfunction]
   fn get_borders_dict<'py>(
@@ -45,6 +47,17 @@ mod gradengrs {
   ) -> PyResult<Bound<'py, PyList>> {
     let polygon_vector = triangle_cutter_python_interface::get_polygon_vector(polygons)?;
     let (rectancles, vertices) = triangle_cutter::cut_out_trianges(polygon_vector);
+    triangle_cutter_python_interface::get_polygon_results(py, rectancles, vertices)
+  }
+
+  #[pyfunction]
+  fn smooth_polygons<'py> (
+    py: Python<'py>,
+    polygons: Bound<'py, PyList>,
+    convergence_ratio: f32
+  ) -> PyResult<Bound<'py, PyList>> {
+    let polygon_vector = triangle_cutter_python_interface::get_polygon_vector(polygons)?;
+    let (rectancles, vertices) = smooth_polys::smooth_polygons(polygon_vector, convergence_ratio);
     triangle_cutter_python_interface::get_polygon_results(py, rectancles, vertices)
   }
 

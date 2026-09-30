@@ -171,6 +171,13 @@ def subdivided_border_main():
     )
 
     parser.add_argument(
+        "-mesh_smooth_convergence_ratio",
+        type=float,
+        default=.05,
+        help="Used to determine completion of polygon smoothing when building the mesh"
+    )
+
+    parser.add_argument(
         "-validation_highlight_file_name",
         type=str,
         default="validation_failures.png",
@@ -205,6 +212,7 @@ def subdivided_border_main():
                 decimate_deviation_cutoff=args.decimate_deviation_cutoff,
                 edge_subdivide_ratio=args.edge_subdivide_ratio,
                 config_file_name=args.system_config_file,
+                mesh_smooth_convergence_ratio=args.mesh_smooth_convergence_ratio,
                 validation_highlight_file_name=args.validation_highlight_file_name
             )
             pr.disable()

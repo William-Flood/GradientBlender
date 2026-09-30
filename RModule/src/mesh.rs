@@ -7,7 +7,8 @@ use crate::find_index_in::BinaryKeyOrd;
 pub struct Vertex {
     pub id: usize,
     pub y: usize,
-    pub x: usize
+    pub x: usize,
+    pub edges: Vec<usize>
 }
 
 impl BinaryKeyOrd for Vertex {
@@ -82,7 +83,8 @@ pub fn get_vertices(polygons: &Vec<Vec<(usize, usize)>>) -> Vec<Vertex> {
         vertices.push(Vertex{
             id: vertex_index, 
             y: vertex_vector[vertex_index * 2], 
-            x: vertex_vector[vertex_index * 2 + 1]
+            x: vertex_vector[vertex_index * 2 + 1],
+            edges: Vec::new()
         });
     }
     vertices
@@ -196,8 +198,14 @@ pub fn get_polygons(polygons_coords: &Vec<Vec<(usize, usize)>>, total_vertices: 
     polygons
 }
 
-pub fn connect_mesh(total_edges: &mut Vec<Edge>, polygons: &Vec<Polygon>) {
+pub fn connect_mesh(total_vertices: &mut Vec<Vertex>, total_edges: &mut Vec<Edge>, polygons: &Vec<Polygon>) {
     // Connects the edge objects to the polygon objects
+    for edge in &*total_edges {
+        let vertex_1 = &mut total_vertices[edge.vertex_1];
+        vertex_1.edges.push(edge.id);
+        let vertex_2 = &mut total_vertices[edge.vertex_2];
+        vertex_2.edges.push(edge.id);
+    }
     for polygon in polygons {
         for polygon_edge in &polygon.edges {
             total_edges[*polygon_edge].add_connected_polygon(polygon.id);

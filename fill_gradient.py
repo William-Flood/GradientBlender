@@ -354,10 +354,10 @@ def make_border_loops(
 
 
 
-def normalize_polygons(regions, edge_subdivide_ratio):
+def normalize_polygons(regions, edge_subdivide_ratio, mesh_smooth_convergence_ratio):
     print("Normalizing polygons")
     cut_concave_regions(regions, edge_subdivide_ratio)
-    cut_out_quads(regions)
+    cut_out_quads(regions, mesh_smooth_convergence_ratio)
 
 
 
@@ -372,6 +372,7 @@ def subdivided_border_tangent_interpolation_fill(
     decimate_deviation_cutoff=3,
     edge_subdivide_ratio=3,
     config_file_name="",
+    mesh_smooth_convergence_ratio=.05,
     validation_highlight_file_name="validation_failures.png"
 ):
     config_obj.load(config_file_name)
@@ -394,6 +395,6 @@ def subdivided_border_tangent_interpolation_fill(
         border_traversal_failure_tolerance,
         validation_highlight_file_name
     )
-    normalize_polygons(regions, edge_subdivide_ratio)
+    normalize_polygons(regions, edge_subdivide_ratio, mesh_smooth_convergence_ratio)
     # draw_region_borders([region for region in regions if not region.is_void], guide_image_shape)
     draw_polygons([region for region in regions if not region.is_void], guide_image_shape)

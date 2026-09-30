@@ -323,7 +323,7 @@ mod merge {
                 y,
                 x,
                 self.vertices,
-                || Vertex { id: new_id, y: y, x: x }
+                || Vertex { id: new_id, y: y, x: x, edges: Vec::new() }
             );
         }
         fn map_old_and_refresh_ids(&mut self) {
@@ -488,7 +488,7 @@ mod merge {
         for edge in &mut *edges {
             edge.polygons = Vec::new();
         }
-        mesh::connect_mesh(edges, polygons);
+        mesh::connect_mesh(vertices, edges, polygons);
     }
 }
 
@@ -500,7 +500,7 @@ pub fn cut_out_trianges(
     let mut vertex_list = mesh::get_vertices(&polygon_coords);
     let mut edge_list = mesh::get_edge_vector(&polygon_coords, &vertex_list);
     let mut polygons = mesh::get_polygons(&polygon_coords, &vertex_list, &edge_list);
-    mesh::connect_mesh( &mut edge_list, &polygons);
+    mesh::connect_mesh(&mut vertex_list,  &mut edge_list, &polygons);
     let border_cuts: Vec<TempPolygon> = polygons.iter()
         .map(|p| PolygonButcher {polygon: p})
         .map(|pb| pb.to_quad_if_void_border(&vertex_list, &edge_list))

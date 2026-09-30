@@ -30,7 +30,7 @@ pub struct PolygonResult {
     #[pyo3(get)]
     original_id: usize,
     #[pyo3(get)]
-    points: Py<PyArray2<i64>>
+    points: Py<PyArray2<i32>>
 }
 
 pub fn get_polygon_results<'py>(
@@ -44,8 +44,8 @@ pub fn get_polygon_results<'py>(
         let mut polygon_vertices = vec![0; vertex_count * 2];
         for (polygon_vertex_index, vertex_id) in polygon.vertices.iter().enumerate() {
             let vertex = &vertices[*vertex_id];
-            polygon_vertices[polygon_vertex_index] = vertex.y as i64;
-            polygon_vertices[polygon_vertex_index + vertex_count] = vertex.x as i64;
+            polygon_vertices[polygon_vertex_index] = vertex.y as i32;
+            polygon_vertices[polygon_vertex_index + vertex_count] = vertex.x as i32;
         }
         let point_array_flat = PyArray::from_vec(py, polygon_vertices);
         let point_array = point_array_flat.reshape((2, vertex_count)).expect("Reshape failed");
